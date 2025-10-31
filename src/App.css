@@ -1,0 +1,24 @@
+/* Antd Pagination Custom Styles */
+.ant-pagination-custom .ant-pagination-item {
+  border-radius: 6px;
+}
+
+.ant-pagination-custom .ant-pagination-item-active {
+  background-color: #4f46e5;
+  border-color: #4f46e5;
+}
+
+.ant-pagination-custom .ant-pagination-item-active a {
+  color: white;
+}
+
+.ant-pagination-custom .ant-pagination-prev,
+.ant-pagination-custom .ant-pagination-next {
+  border-radius: 6px;
+}
+
+.ant-pagination-custom .ant-pagination-prev:hover,
+.ant-pagination-custom .ant-pagination-next:hover {
+  border-color: #4f46e5;
+  color: #4f46e5;
+}
