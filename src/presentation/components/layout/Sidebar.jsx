@@ -20,7 +20,7 @@ import clsx from 'clsx';
 
 const navigation = [
   { name: 'Dashboard', href: '/', icon: Home },
-  { name: 'Projects', href: '/projects', icon: Folder },
+  { name: 'Tổ chức & Dự án', href: '/projects', icon: Folder },
   { name: 'Locations', href: '/locations', icon: Building2 },
   { name: 'Lịch làm việc', href: '/schedules', icon: Calendar },
   { name: 'Bán hàng', href: '/sales', icon: ShoppingCart },

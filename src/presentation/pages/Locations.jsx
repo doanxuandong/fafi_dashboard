@@ -2,8 +2,10 @@ import { useEffect, useMemo, useState } from 'react';
 import { listLocations, createLocation, updateLocation, deleteLocation, createDefaultLocationMark, createDefaultWarehouseProperties } from '../../infrastructure/repositories/locationsRepository';
 import { listOrgs, createOrg } from '../../infrastructure/repositories/orgsRepository';
 import { listProjects } from '../../infrastructure/repositories/projectsRepository';
+import { listUsers } from '../../infrastructure/repositories/usersRepository';
+import { getLocationMembers, addUserToLocation, removeUserFromLocation, getUsersByIds } from '../../infrastructure/repositories/locationsMembersRepository';
 import { useAuth } from '../contexts/AuthContext';
-import { Plus, Pencil, Trash2, Search, MapPin, Building, Package, CheckCircle, AlertTriangle, XCircle } from 'lucide-react';
+import { Plus, Pencil, Trash2, Search, MapPin, Building, Package, CheckCircle, AlertTriangle, XCircle, Users, UserPlus, MapPinned } from 'lucide-react';
 import { Pagination } from 'antd';
 
 const defaultForm = { 
@@ -20,7 +22,7 @@ const defaultForm = {
   saleName: '',
   salePhoneNumber: '',
   saleTitle: '',
-  address: '',
+  // address: '',  // Removed - use locationMark.address instead
   availableStock: true,
   tags: [],
   locationMark: createDefaultLocationMark(),
@@ -52,6 +54,7 @@ export default function Locations() {
   const [items, setItems] = useState([]);
   const [orgs, setOrgs] = useState([]);
   const [projects, setProjects] = useState([]);
+  const [allUsers, setAllUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
@@ -67,6 +70,14 @@ export default function Locations() {
   const [orgForm, setOrgForm] = useState({ name: '', description: '' });
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage] = useState(8);
+  
+  // Tab states
+  const [activeTab, setActiveTab] = useState('locations');
+  
+  // Assignment states
+  const [showAssignModal, setShowAssignModal] = useState(false);
+  const [selectedUser, setSelectedUser] = useState(null);
+  const [userLocationMemberships, setUserLocationMemberships] = useState({});
 
   const filtered = useMemo(() => {
     const s = (search || '').toLowerCase();
@@ -108,10 +119,11 @@ export default function Locations() {
 
   const load = async () => {
     setLoading(true);
-    const [data, orgList, projectList] = await Promise.all([
+    const [data, orgList, projectList, usersList] = await Promise.all([
       listLocations({ accessibleProjectIds: accessibleProjects }),
       listOrgs(),
-      listProjects({ accessibleProjectIds: accessibleProjects })
+      listProjects({ accessibleProjectIds: accessibleProjects }),
+      listUsers()
     ]);
     // Filter locations by accessible projects (if not root '*')
     const filteredByAccess = accessibleProjects === '*' 
@@ -120,7 +132,75 @@ export default function Locations() {
     setItems(filteredByAccess);
     setOrgs(orgList);
     setProjects(projectList);
+    setAllUsers(usersList);
     setLoading(false);
+  };
+
+  // Load user location memberships
+  const loadUserLocationMemberships = async () => {
+    const { getUserLocations } = await import('../../infrastructure/repositories/locationsMembersRepository');
+    const memberships = {};
+    
+    for (const user of allUsers) {
+      try {
+        const userLocs = await getUserLocations(user.id);
+        memberships[user.id] = userLocs;
+      } catch (error) {
+        console.error(`Error loading locations for user ${user.id}:`, error);
+        memberships[user.id] = [];
+      }
+    }
+    
+    setUserLocationMemberships(memberships);
+  };
+
+  // Handle assign user to locations
+  const handleAssignUserToLocations = async (user, selectedLocationIds) => {
+    if (!selectedLocationIds || selectedLocationIds.length === 0) {
+      alert('Vui lòng chọn ít nhất một địa điểm');
+      return;
+    }
+
+    try {
+      for (const locationId of selectedLocationIds) {
+        const location = items.find(loc => loc.id === locationId);
+        if (!location) continue;
+
+        await addUserToLocation(
+          user.id,
+          locationId,
+          location.projectId,
+          location.orgId,
+          {
+            code: location.code,
+            name: location.name || location.locationName,
+            address: location.locationMark?.address || location.locationMark?.formattedAddress
+          }
+        );
+      }
+
+      alert('Phân công địa điểm thành công!');
+      setShowAssignModal(false);
+      setSelectedUser(null);
+      await loadUserLocationMemberships();
+    } catch (error) {
+      console.error('Error assigning locations:', error);
+      alert('Có lỗi xảy ra khi phân công địa điểm');
+    }
+  };
+
+  // Handle remove user from location
+  const handleRemoveUserFromLocation = async (userId, locationId, projectId) => {
+    if (!confirm('Bạn có chắc muốn xóa phân công này?')) return;
+
+    try {
+      await removeUserFromLocation(userId, locationId, projectId);
+      alert('Đã xóa phân công địa điểm');
+      await loadUserLocationMemberships();
+    } catch (error) {
+      console.error('Error removing location assignment:', error);
+      alert('Có lỗi xảy ra khi xóa phân công');
+    }
   };
 
   // Import from Google Sheets (CSV)
@@ -188,7 +268,11 @@ export default function Locations() {
       const toObj = (row) => headers.reduce((acc, h, idx) => { acc[h] = row[idx] ?? ''; return acc; }, {});
 
       const logs = [];
-      let success = 0, failed = 0;
+      let success = 0, failed = 0, duplicates = 0;
+      
+      // Create a set of existing location IDs for duplicate detection
+      const existingLocationIds = new Set(items.map(loc => loc.id));
+      
       for (const r of dataRows) {
         const obj = toObj(r);
         const name = find(obj, ['name','tên','ten']);
@@ -234,6 +318,14 @@ export default function Locations() {
           if (!projectId || !allowed.has(projectId)) { failed++; logs.push(`Bỏ qua ${name}: dự án không hợp lệ/không trong phạm vi`); continue; }
         }
 
+        // Check for duplicates using projectId_code format
+        const expectedId = projectId && code ? `${projectId}_${code}` : null;
+        if (expectedId && existingLocationIds.has(expectedId)) {
+          duplicates++;
+          logs.push(`⚠️ Trùng lặp: ${name} (${code}) - Địa điểm đã tồn tại`);
+          continue;
+        }
+
         const toBool = (v) => {
           const s = String(v || '').trim().toLowerCase();
           if (!s) return defaultForm.availableStock;
@@ -270,13 +362,24 @@ export default function Locations() {
 
         try {
           await createLocation(payload, currentUser);
-          success++; logs.push(`OK: ${name}`);
+          success++; 
+          logs.push(`✓ OK: ${name} (${code})`);
+          // Add to existing set to prevent duplicates within the same import batch
+          if (expectedId) existingLocationIds.add(expectedId);
         } catch (e) {
-          failed++; logs.push(`Lỗi ${name}: ${e.message || e}`);
+          failed++; 
+          logs.push(`✗ Lỗi ${name}: ${e.message || e}`);
         }
       }
 
-      setImportLog([`Hoàn tất: ${success} thành công, ${failed} thất bại`, ...logs]);
+      setImportLog([
+        `📊 Kết quả import:`,
+        `✓ Thành công: ${success} địa điểm`,
+        `✗ Thất bại: ${failed} địa điểm`,
+        `⚠️ Trùng lặp: ${duplicates} địa điểm`,
+        `━━━━━━━━━━━━━━━━━━━━`,
+        ...logs
+      ]);
       await load();
     } catch (err) {
       setImportLog([`Lỗi import: ${err.message || err}`]);
@@ -286,6 +389,13 @@ export default function Locations() {
   };
 
   useEffect(() => { load(); }, [accessibleProjects]);
+
+  // Load user location memberships when tab changes to assignment
+  useEffect(() => {
+    if (activeTab === 'assignment' && allUsers.length > 0) {
+      loadUserLocationMemberships();
+    }
+  }, [activeTab, allUsers]);
 
   const submit = async (e) => {
     e.preventDefault();
@@ -420,7 +530,35 @@ export default function Locations() {
         </div>
       </div>
 
+      {/* Tabs */}
       <div className="bg-white shadow rounded-lg">
+        <div className="border-b border-gray-200">
+          <nav className="-mb-px flex space-x-8 px-6">
+            <button
+              onClick={() => setActiveTab('locations')}
+              className={`py-4 px-1 border-b-2 font-medium text-sm ${
+                activeTab === 'locations'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              Địa điểm
+            </button>
+            <button
+              onClick={() => setActiveTab('assignment')}
+              className={`py-4 px-1 border-b-2 font-medium text-sm ${
+                activeTab === 'assignment'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              Phân công nhân sự
+            </button>
+          </nav>
+        </div>
+
+        {/* Tab: Locations */}
+        {activeTab === 'locations' && (
         <div className="p-6">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-lg font-medium text-gray-900">Danh sách địa điểm</h3>
@@ -564,24 +702,107 @@ export default function Locations() {
                   </table>
             </div>
           )}
-        </div>
-      </div>
 
-      {/* Pagination */}
-      {filtered.length > 0 && (
-        <div className="mt-6 flex justify-center">
-          <Pagination
-            current={currentPage}
-            total={filtered.length}
-            pageSize={itemsPerPage}
-            showSizeChanger={false}
-            showQuickJumper={false}
-            showTotal={false}
-            onChange={(page) => setCurrentPage(page)}
-            className="ant-pagination-custom"
-          />
+          {/* Pagination */}
+          {filtered.length > 0 && (
+            <div className="mt-6 flex justify-center">
+              <Pagination
+                current={currentPage}
+                total={filtered.length}
+                pageSize={itemsPerPage}
+                showSizeChanger={false}
+                showQuickJumper={false}
+                showTotal={false}
+                onChange={(page) => setCurrentPage(page)}
+                className="ant-pagination-custom"
+              />
+            </div>
+          )}
         </div>
-      )}
+        )}
+
+        {/* Tab: Assignment */}
+        {activeTab === 'assignment' && (
+        <div className="p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-medium text-gray-900">Phân công nhân sự theo địa điểm</h3>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Nhân viên</th>
+                  <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Email</th>
+                  <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Role</th>
+                  <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Địa điểm phụ trách</th>
+                  <th className="w-24 px-4 py-3 text-xs font-medium text-gray-500 uppercase text-right">Thao tác</th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {allUsers.map((user) => {
+                  const userLocs = userLocationMemberships[user.id] || [];
+                  const locationNames = userLocs.map(loc => {
+                    const location = items.find(l => l.id === loc.locationId);
+                    return location?.name || location?.locationName || loc.locationId;
+                  }).join(', ') || '-';
+                  
+                  return (
+                    <tr key={user.id} className="hover:bg-gray-50">
+                      <td className="px-4 py-3 text-sm font-medium">{user.displayName || user.email}</td>
+                      <td className="px-4 py-3 text-sm text-gray-600">{user.email}</td>
+                      <td className="px-4 py-3 text-sm text-gray-600">{user.role}</td>
+                      <td className="px-4 py-3 text-sm text-gray-600">
+                        {userLocs.length > 0 ? (
+                          <div className="space-y-1">
+                            {userLocs.slice(0, 3).map(loc => {
+                              const location = items.find(l => l.id === loc.locationId);
+                              return (
+                                <div key={loc.id} className="flex items-center gap-2">
+                                  <span>{location?.name || location?.locationName || loc.locationId}</span>
+                                  <button
+                                    onClick={() => handleRemoveUserFromLocation(user.id, loc.locationId, loc.projectId)}
+                                    className="text-red-600 hover:text-red-800 text-xs"
+                                  >
+                                    ×
+                                  </button>
+                                </div>
+                              );
+                            })}
+                            {userLocs.length > 3 && (
+                              <span className="text-xs text-gray-500">+{userLocs.length - 3} địa điểm khác</span>
+                            )}
+                          </div>
+                        ) : '-'}
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <button
+                          onClick={() => {
+                            setSelectedUser(user);
+                            setShowAssignModal(true);
+                          }}
+                          className="p-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors inline-flex"
+                          title="Phân công địa điểm"
+                        >
+                          <MapPinned className="w-5 h-5" />
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+                {allUsers.length === 0 && (
+                  <tr>
+                    <td colSpan="5" className="px-4 py-8 text-center text-gray-500">
+                      Không có nhân sự nào
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+        )}
+      </div>
 
       {/* Form tạo/sửa location */}
       {showForm && (
@@ -696,8 +917,8 @@ export default function Locations() {
               <div>
                 <label className="block text-sm font-medium mb-1">Địa chỉ</label>
                 <textarea 
-                  value={form.address} 
-                  onChange={(e)=>setForm({...form, address: e.target.value, locationMark: {...form.locationMark, address: e.target.value}})} 
+                  value={form.locationMark?.address || ''} 
+                  onChange={(e)=>setForm({...form, locationMark: {...form.locationMark, address: e.target.value}})} 
                   className="w-full border rounded-lg px-3 py-2" 
                   rows={2}
                   placeholder="Địa chỉ chi tiết"
@@ -839,6 +1060,151 @@ export default function Locations() {
           </div>
         </div>
       )}
+
+      {/* Modal Assign Locations */}
+      {showAssignModal && selectedUser && (
+        <AssignLocationsModal
+          user={selectedUser}
+          locations={items}
+          userLocationMemberships={userLocationMemberships[selectedUser.id] || []}
+          onClose={() => {
+            setShowAssignModal(false);
+            setSelectedUser(null);
+          }}
+          onAssign={handleAssignUserToLocations}
+        />
+      )}
+    </div>
+  );
+}
+
+// Component: AssignLocationsModal
+function AssignLocationsModal({ user, locations, userLocationMemberships, onClose, onAssign }) {
+  const [selectedLocationIds, setSelectedLocationIds] = useState([]);
+
+  const handleToggleLocation = (locationId) => {
+    setSelectedLocationIds(prev => {
+      if (prev.includes(locationId)) {
+        return prev.filter(id => id !== locationId);
+      } else {
+        return [...prev, locationId];
+      }
+    });
+  };
+
+  const handleSubmit = () => {
+    onAssign(user, selectedLocationIds);
+  };
+
+  // Group locations by project
+  const locationsByProject = locations.reduce((acc, loc) => {
+    const projectId = loc.projectId || 'Không có dự án';
+    if (!acc[projectId]) {
+      acc[projectId] = [];
+    }
+    acc[projectId].push(loc);
+    return acc;
+  }, {});
+
+  // Get already assigned location IDs
+  const assignedLocationIds = userLocationMemberships.map(m => m.locationId);
+
+  return (
+    <div 
+      className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-[9999]"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) {
+          onClose();
+        }
+      }}
+    >
+      <div className="bg-white rounded-lg w-full max-w-3xl max-h-[80vh] flex flex-col">
+        <div className="p-6 border-b">
+          <h3 className="text-lg font-semibold">
+            Phân công địa điểm cho: {user.displayName || user.email}
+          </h3>
+          <p className="text-sm text-gray-600 mt-1">
+            Chọn các địa điểm mà nhân viên này sẽ phụ trách
+          </p>
+        </div>
+
+        <div className="p-6 overflow-y-auto flex-1">
+          {Object.keys(locationsByProject).length === 0 ? (
+            <div className="text-center text-gray-500 py-8">
+              Không có địa điểm nào
+            </div>
+          ) : (
+            Object.entries(locationsByProject).map(([projectId, locs]) => (
+              <div key={projectId} className="mb-6">
+                <h4 className="font-medium text-sm text-gray-700 mb-2">
+                  Dự án: {projectId}
+                </h4>
+                <div className="space-y-2">
+                  {locs.map(loc => {
+                    const isAssigned = assignedLocationIds.includes(loc.id);
+                    const isSelected = selectedLocationIds.includes(loc.id);
+                    
+                    return (
+                      <label
+                        key={loc.id}
+                        className={`flex items-start gap-3 p-3 border rounded-lg cursor-pointer hover:bg-gray-50 ${
+                          isAssigned ? 'bg-blue-50 border-blue-300' : ''
+                        } ${isSelected ? 'bg-green-50 border-green-500' : ''}`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => handleToggleLocation(loc.id)}
+                          disabled={isAssigned}
+                          className="mt-1"
+                        />
+                        <div className="flex-1">
+                          <div className="font-medium text-sm">
+                            {loc.name || loc.locationName}
+                            {isAssigned && (
+                              <span className="ml-2 text-xs text-blue-600">(Đã phân công)</span>
+                            )}
+                          </div>
+                          <div className="text-xs text-gray-500 mt-1">
+                            {loc.code} - {loc.locationMark?.address || loc.locationMark?.formattedAddress || 'N/A'}
+                          </div>
+                        </div>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+
+        <div className="p-6 border-t flex items-center justify-between">
+          <div className="text-sm text-gray-600">
+            Đã chọn: <span className="font-semibold">{selectedLocationIds.length}</span> địa điểm
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 rounded-lg border border-gray-300 hover:bg-gray-100"
+            >
+              Hủy
+            </button>
+            <button
+              type="button"
+              onClick={handleSubmit}
+              disabled={selectedLocationIds.length === 0}
+              className={`px-4 py-2 rounded-lg ${
+                selectedLocationIds.length === 0
+                  ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                  : 'bg-blue-600 text-white hover:bg-blue-700'
+              }`}
+            >
+              Phân công
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

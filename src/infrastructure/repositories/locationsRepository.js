@@ -36,13 +36,27 @@ export async function listLocations({ projectId, orgId, search = '', accessibleP
 
 export async function createLocation(data, user) {
   const colRef = collection(db, COLLECTION);
-  // Generate doc ID first
-  const docRef = doc(collection(db, COLLECTION));
-  const id = docRef.id;
+  
+  // Generate ID based on projectId and code
+  let id;
+  if (data.projectId && data.code) {
+    // Use projectId_code format
+    id = `${data.projectId}_${data.code}`;
+  } else {
+    // Fallback to auto-generated ID if projectId or code is missing
+    const tempDocRef = doc(collection(db, COLLECTION));
+    id = tempDocRef.id;
+  }
+  
+  // Create document reference with the generated ID
+  const docRef = doc(colRef, id);
+  
+  // Remove address from top level if exists (use locationMark.address instead)
+  const { address, ...cleanData } = data;
   
   const payload = {
     id,
-    ...data,
+    ...cleanData,
     createdAt: serverTimestamp(),
     createdBy: user?.uid || 'system',
     updatedAt: serverTimestamp(),
@@ -79,8 +93,12 @@ export async function createLocation(data, user) {
 
 export async function updateLocation(id, data, user) {
   const ref = doc(db, COLLECTION, id);
+  
+  // Remove address from top level if exists (use locationMark.address instead)
+  const { address, ...cleanData } = data;
+  
   const payload = {
-    ...data,
+    ...cleanData,
     updatedAt: serverTimestamp(),
     updatedBy: user?.uid || 'system',
     ...(data.name ? { keywords: generateKeywords(data.name, data.code) } : {}),

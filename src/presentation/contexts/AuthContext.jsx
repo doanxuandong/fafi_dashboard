@@ -62,16 +62,27 @@ export const AuthProvider = ({ children }) => {
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      setCurrentUser(user);
-      
       if (user) {
         try {
+          setCurrentUser(user);
+          
           // Lấy thông tin user profile từ Firestore
           const profile = await getUserById(user.uid);
+          
+          // Nếu không có profile trong Firestore, không cho phép truy cập
+          if (!profile) {
+            console.error('User profile not found in Firestore');
+            setUserProfile(null);
+            setCurrentUser(null);
+            setAccessibleProjects([]);
+            setLoading(false);
+            return;
+          }
+          
           setUserProfile(profile);
           
           // Xác định tập projects có thể truy cập: root => '*', khác => dựa vào assignments
-          if (profile?.role === 'root' || (currentUser.email || '') === 'root@fafi.app') {
+          if (profile?.role === 'root' || (user.email || '') === 'root@fafi.app') {
             setAccessibleProjects('*');
           } else {
             setAccessibleProjects(profile?.projectIds || []);
@@ -79,10 +90,12 @@ export const AuthProvider = ({ children }) => {
         } catch (error) {
           console.error('Error loading user profile:', error);
           setUserProfile(null);
+          setCurrentUser(null);
           setAccessibleProjects([]);
         }
       } else {
         setUserProfile(null);
+        setCurrentUser(null);
         setAccessibleProjects([]);
       }
       

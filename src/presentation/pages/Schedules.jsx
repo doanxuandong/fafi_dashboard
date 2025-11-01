@@ -2,8 +2,9 @@ import { useEffect, useMemo, useState } from 'react';
 import { listSchedules, createSchedule, updateSchedule, deleteSchedule } from '../../infrastructure/repositories/schedulesRepository';
 import { listProjects } from '../../infrastructure/repositories/projectsRepository';
 import { listLocations } from '../../infrastructure/repositories/locationsRepository';
+import { listUsers } from '../../infrastructure/repositories/usersRepository';
 import { useAuth } from '../contexts/AuthContext';
-import { Plus, Pencil, Trash2, Search, Calendar, Clock, MapPin, Users, BarChart3, AlertTriangle, CheckCircle } from 'lucide-react';
+import { Plus, Pencil, Trash2, Search, Calendar, Clock, MapPin, Users, BarChart3, AlertTriangle, CheckCircle, X } from 'lucide-react';
 import { Pagination } from 'antd';
 
 const defaultForm = { 
@@ -22,6 +23,7 @@ export default function Schedules() {
   const [items, setItems] = useState([]);
   const [projects, setProjects] = useState([]);
   const [locations, setLocations] = useState([]);
+  const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [showForm, setShowForm] = useState(false);
@@ -29,6 +31,8 @@ export default function Schedules() {
   const [form, setForm] = useState(defaultForm);
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage] = useState(8);
+  const [showMembersModal, setShowMembersModal] = useState(false);
+  const [selectedMembers, setSelectedMembers] = useState([]);
 
   const filtered = useMemo(() => {
     if (!search) return items;
@@ -72,14 +76,16 @@ export default function Schedules() {
 
   const load = async () => {
     setLoading(true);
-    const [data, projectList, locationList] = await Promise.all([
+    const [data, projectList, locationList, userList] = await Promise.all([
       listSchedules({ accessibleProjectIds: accessibleProjects }),
       listProjects({ accessibleProjectIds: accessibleProjects }),
-      listLocations({ accessibleProjectIds: accessibleProjects })
+      listLocations({ accessibleProjectIds: accessibleProjects }),
+      listUsers({ accessibleProjectIds: accessibleProjects })
     ]);
     setItems(data);
     setProjects(projectList);
     setLocations(locationList);
+    setUsers(userList);
     setLoading(false);
   };
 
@@ -296,7 +302,7 @@ export default function Schedules() {
                     <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Thời gian kết thúc</th>
                     <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Thành viên</th>
                     <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Trạng thái</th>
-                    <th className="w-24 px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Thao tác</th>
+                    <th className="w-24 px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider text-right">Thao tác</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -324,18 +330,24 @@ export default function Schedules() {
                         </div>
                       </td>
                       <td className="px-6 py-4">
-                        <div className="flex items-center">
-                          <Users className="w-4 h-4 mr-2 text-gray-400" />
-                          <span className="text-sm">{item.members?.length || 0} người</span>
-                        </div>
+                        <button
+                          onClick={() => {
+                            setSelectedMembers(item.members || []);
+                            setShowMembersModal(true);
+                          }}
+                          className="inline-flex items-center gap-1 text-gray-700 hover:text-blue-600 transition-colors cursor-pointer"
+                        >
+                          <Users className="w-4 h-4" />
+                          <span className="text-sm font-medium">{item.members?.length || 0} người</span>
+                        </button>
                       </td>
                       <td className="px-6 py-4">
                         <span className={`px-2 py-1 rounded-full text-xs ${getStatusColor(item.active)}`}>
                           {item.active ? 'Hoạt động' : 'Tạm dừng'}
                         </span>
                       </td>
-                      <td className="px-6 py-4">
-                        <div className="flex items-center gap-2">
+                      <td className="px-6 py-4 text-right">
+                        <div className="flex items-center gap-2 justify-end">
                           <button 
                             onClick={() => onEdit(item)} 
                             className="p-2 hover:bg-gray-100 rounded"
@@ -457,6 +469,49 @@ export default function Schedules() {
               </div>
 
               <div>
+                <label className="block text-sm font-medium mb-1">Thành viên</label>
+                <div className="border rounded-lg p-3 bg-gray-50">
+                  <div className="flex flex-wrap gap-2 mb-2">
+                    {form.members.map(userId => {
+                      const user = users.find(u => u.id === userId);
+                      return (
+                        <div key={userId} className="inline-flex items-center gap-1 bg-blue-100 text-blue-800 px-2 py-1 rounded text-sm">
+                          <span>{user?.displayName || user?.email || userId}</span>
+                          <button
+                            type="button"
+                            onClick={() => setForm({...form, members: form.members.filter(id => id !== userId)})}
+                            className="hover:bg-blue-200 rounded"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        </div>
+                      );
+                    })}
+                    {form.members.length === 0 && (
+                      <span className="text-sm text-gray-500">Chưa có thành viên nào</span>
+                    )}
+                  </div>
+                  <select 
+                    value=""
+                    onChange={(e) => {
+                      const userId = e.target.value;
+                      if (userId && !form.members.includes(userId)) {
+                        setForm({...form, members: [...form.members, userId]});
+                      }
+                    }}
+                    className="w-full border rounded-lg px-3 py-2 bg-white"
+                  >
+                    <option value="">-- Thêm thành viên --</option>
+                    {users.filter(u => !form.members.includes(u.id)).map(u => (
+                      <option key={u.id} value={u.id}>
+                        {u.displayName || u.email} ({u.role})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div>
                 <label className="block text-sm font-medium mb-1">Ghi chú</label>
                 <textarea 
                   value={form.notes} 
@@ -496,6 +551,79 @@ export default function Schedules() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal hiển thị danh sách thành viên */}
+      {showMembersModal && (
+        <div 
+          className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-[9999]"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              setShowMembersModal(false);
+              setSelectedMembers([]);
+            }
+          }}
+        >
+          <div className="bg-white rounded-lg w-full max-w-2xl max-h-[90vh] overflow-y-auto p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold flex items-center">
+                <Users className="w-5 h-5 mr-2" />
+                Danh sách thành viên ({selectedMembers.length})
+              </h3>
+              <button
+                onClick={() => {
+                  setShowMembersModal(false);
+                  setSelectedMembers([]);
+                }}
+                className="p-2 hover:bg-gray-100 rounded"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            {selectedMembers.length === 0 ? (
+              <div className="text-center py-8 text-gray-500">
+                Chưa có thành viên nào
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {selectedMembers.map(userId => {
+                  const user = users.find(u => u.id === userId);
+                  return (
+                    <div key={userId} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
+                          <span className="text-blue-600 font-medium">
+                            {(user?.displayName || user?.email || 'U').charAt(0).toUpperCase()}
+                          </span>
+                        </div>
+                        <div>
+                          <div className="font-medium">{user?.displayName || user?.email || userId}</div>
+                          <div className="text-sm text-gray-500">{user?.email}</div>
+                        </div>
+                      </div>
+                      <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs">
+                        {user?.role || 'staff'}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            
+            <div className="mt-4 flex justify-end">
+              <button
+                onClick={() => {
+                  setShowMembersModal(false);
+                  setSelectedMembers([]);
+                }}
+                className="px-4 py-2 bg-gray-200 hover:bg-gray-300 rounded"
+              >
+                Đóng
+              </button>
+            </div>
           </div>
         </div>
       )}

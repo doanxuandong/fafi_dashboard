@@ -16,26 +16,30 @@ import { db } from '../services/firebase';
 const COLLECTION = 'schedules';
 
 // Helper function to generate keywords for search
-function generateKeywords(text) {
-  if (!text) return [];
-  const words = text.toLowerCase().split(/\s+/);
+function generateKeywords(locationName, locationCode, notes) {
   const keywords = [];
+  const texts = [locationName, locationCode, notes].filter(Boolean);
   
-  // Add full text
-  keywords.push(text.toLowerCase());
-  
-  // Add individual words
-  words.forEach(word => {
-    if (word.length > 0) {
-      keywords.push(word);
-    }
-  });
-  
-  // Add partial words (for better search)
-  words.forEach(word => {
-    for (let i = 1; i < word.length; i++) {
-      keywords.push(word.substring(0, i));
-    }
+  texts.forEach(text => {
+    if (!text) return;
+    const words = text.toLowerCase().split(/\s+/);
+    
+    // Add full text
+    keywords.push(text.toLowerCase());
+    
+    // Add individual words
+    words.forEach(word => {
+      if (word.length > 0) {
+        keywords.push(word);
+      }
+    });
+    
+    // Add partial words (for better search)
+    words.forEach(word => {
+      for (let i = 1; i < word.length; i++) {
+        keywords.push(word.substring(0, i));
+      }
+    });
   });
   
   return [...new Set(keywords)]; // Remove duplicates
@@ -75,16 +79,27 @@ export async function listSchedulesByLocation(locationId) {
 // Create new schedule
 export async function createSchedule(data, user) {
   const colRef = collection(db, COLLECTION);
+  
+  // Extract location code from locationId (format: projectId_code)
+  const locationCode = data.locationId ? data.locationId.split('_').pop() : '';
+  
   const payload = {
-    ...data,
+    id: data.id || doc(colRef).id,
+    projectId: data.projectId || '',
+    locationId: data.locationId || '',
+    locationName: data.locationName || '',
+    members: data.members || [],
+    notes: data.notes || null,
+    active: data.active !== undefined ? data.active : true,
+    keywords: generateKeywords(data.locationName, locationCode, data.notes),
     createdAt: serverTimestamp(),
     createdBy: user?.uid || 'system',
-    keywords: generateKeywords(data.notes || ''),
-    active: data.active !== undefined ? data.active : true,
+    updatedAt: null,
     // Convert datetime strings to Firestore Timestamps
     startAt: data.startAt ? Timestamp.fromDate(new Date(data.startAt)) : null,
     endAt: data.endAt ? Timestamp.fromDate(new Date(data.endAt)) : null,
   };
+  
   const docRef = await addDoc(colRef, payload);
   return { id: docRef.id, ...payload };
 }
@@ -92,15 +107,25 @@ export async function createSchedule(data, user) {
 // Update schedule
 export async function updateSchedule(id, data, user) {
   const ref = doc(db, COLLECTION, id);
+  
+  // Extract location code from locationId (format: projectId_code)
+  const locationCode = data.locationId ? data.locationId.split('_').pop() : '';
+  
   const payload = {
-    ...data,
+    projectId: data.projectId,
+    locationId: data.locationId,
+    locationName: data.locationName,
+    members: data.members || [],
+    notes: data.notes !== undefined ? data.notes : null,
+    active: data.active !== undefined ? data.active : true,
+    keywords: generateKeywords(data.locationName, locationCode, data.notes),
     updatedAt: serverTimestamp(),
     updatedBy: user?.uid || 'system',
-    ...(data.notes ? { keywords: generateKeywords(data.notes) } : {}),
     // Convert datetime strings to Firestore Timestamps
-    ...(data.startAt ? { startAt: Timestamp.fromDate(new Date(data.startAt)) } : {}),
-    ...(data.endAt ? { endAt: Timestamp.fromDate(new Date(data.endAt)) } : {}),
+    startAt: data.startAt ? Timestamp.fromDate(new Date(data.startAt)) : null,
+    endAt: data.endAt ? Timestamp.fromDate(new Date(data.endAt)) : null,
   };
+  
   await updateDoc(ref, payload);
   return { id, ...payload };
 }

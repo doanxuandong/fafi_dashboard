@@ -55,13 +55,14 @@ export default function StaffManagement() {
   const [selectedStaff, setSelectedStaff] = useState(null);
   const [activeTab, setActiveTab] = useState('list');
   const [showAddStaff, setShowAddStaff] = useState(false);
-  const [showAssignProject, setShowAssignProject] = useState(false);
+  const [editingStaff, setEditingStaff] = useState(null);
+  const [showDetailModal, setShowDetailModal] = useState(false);
   const [fixEmail, setFixEmail] = useState('');
   const [search, setSearch] = useState('');
   const [filterProjectId, setFilterProjectId] = useState('');
   const [filterRole, setFilterRole] = useState('');
   const [filterEmail, setFilterEmail] = useState('');
-  const [form, setForm] = useState({ displayName: '', email: '', phoneNumber: '', role: 'admin', password: '', lastOrgId: '', projectIds: [] });
+  const [form, setForm] = useState({ displayName: '', email: '', phoneNumber: '', role: 'admin', password: '' });
 
   useEffect(() => {
     loadData();
@@ -105,23 +106,23 @@ export default function StaffManagement() {
   const handleCreateStaff = async (e) => {
     e.preventDefault();
     try {
-      if (!form.lastOrgId) {
-        alert('Vui lòng chọn Tổ chức');
-        return;
-      }
-      const created = await createUser({
-        ...form,
-        lastOrgId: form.lastOrgId,
-        projectIds: form.projectIds,
-      }, currentUser);
-      if (form.projectIds?.length) {
-        await assignUserToProjects(created.id, form.projectIds);
+      if (editingStaff) {
+        await updateUser(editingStaff.id, {
+          displayName: form.displayName,
+          phoneNumber: form.phoneNumber,
+          role: form.role,
+        }, currentUser);
+      } else {
+        await createUser({
+          ...form,
+        }, currentUser);
       }
       setShowAddStaff(false);
-      setForm({ displayName: '', email: '', phoneNumber: '', role: roles[0] || 'admin', password: '', lastOrgId: '', projectIds: [] });
+      setEditingStaff(null);
+      setForm({ displayName: '', email: '', phoneNumber: '', role: roles[0] || 'admin', password: '' });
       await loadData();
     } catch (error) {
-      alert('Lỗi tạo nhân viên: ' + error.message);
+      alert('Lỗi lưu nhân viên: ' + error.message);
     }
   };
 
@@ -135,27 +136,6 @@ export default function StaffManagement() {
     }
   };
 
-  const handleAssignProject = async (projectIds) => {
-    try {
-      // Validate within accessibleProjects for non-root
-      const canAccessAll = accessibleProjects === '*' || (await isRoot());
-      if (!canAccessAll) {
-        const allowed = new Set(accessibleProjects || []);
-        const invalid = (projectIds || []).filter(id => !allowed.has(id));
-        if (invalid.length) {
-          alert('Bạn chỉ có thể gán dự án trong phạm vi được cấp quyền.');
-          return;
-        }
-      }
-
-      await assignUserToProjects(selectedStaff.id, projectIds);
-      setShowAssignProject(false);
-      setSelectedStaff(null);
-      await loadData();
-    } catch (error) {
-      alert('Lỗi gán dự án: ' + error.message);
-    }
-  };
 
   const getStatusColor = (status) => {
     switch (status) {
@@ -423,7 +403,7 @@ export default function StaffManagement() {
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                         Trạng thái
                       </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                         Thao tác
                       </th>
                     </tr>
@@ -470,12 +450,29 @@ export default function StaffManagement() {
                               {s.enable !== false ? 'Hoạt động' : 'Không hoạt động'}
                             </span>
                           </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                            <div className="flex items-center gap-2">
+                          <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-right">
+                            <div className="flex items-center gap-2 justify-end">
                               <button 
-                                onClick={() => {setSelectedStaff(s); setShowAssignProject(true);}}
+                                onClick={() => {setSelectedStaff(s); setShowDetailModal(true);}}
+                                className="p-2 hover:bg-gray-100 rounded text-blue-600"
+                                title="Xem chi tiết"
+                              >
+                                <Eye className="w-4 h-4" />
+                              </button>
+                              <button 
+                                onClick={() => {
+                                  setEditingStaff(s);
+                                  setForm({
+                                    displayName: s.displayName || '',
+                                    email: s.email || '',
+                                    phoneNumber: s.phoneNumber || '',
+                                    role: s.role || 'admin',
+                                    password: ''
+                                  });
+                                  setShowAddStaff(true);
+                                }}
                                 className="p-2 hover:bg-gray-100 rounded"
-                                title="Chỉnh sửa"
+                                title="Sửa"
                               >
                                 <Edit className="w-4 h-4" />
                               </button>
@@ -645,7 +642,7 @@ export default function StaffManagement() {
       {showAddStaff && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 w-full max-w-md">
-            <h3 className="text-lg font-bold mb-4">Thêm nhân viên mới</h3>
+            <h3 className="text-lg font-bold mb-4">{editingStaff ? 'Sửa nhân viên' : 'Thêm nhân viên mới'}</h3>
             <form onSubmit={handleCreateStaff} className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -659,18 +656,33 @@ export default function StaffManagement() {
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Email *
-                </label>
-                <input
-                  type="email"
-                  required
-                  value={form.email}
-                  onChange={(e) => setForm({ ...form, email: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
+              {!editingStaff && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Email *
+                  </label>
+                  <input
+                    type="email"
+                    required
+                    value={form.email}
+                    onChange={(e) => setForm({ ...form, email: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+              )}
+              {editingStaff && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Email
+                  </label>
+                  <input
+                    type="email"
+                    value={form.email}
+                    disabled
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-50"
+                  />
+                </div>
+              )}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Số điện thoại
@@ -696,70 +708,30 @@ export default function StaffManagement() {
                   ))}
                 </select>
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Mật khẩu (mặc định: 123456)
-                </label>
-                <input
-                  type="password"
-                  value={form.password}
-                  onChange={(e) => setForm({ ...form, password: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="Để trống nếu dùng mật khẩu mặc định"
-                />
-              </div>
-              {/* Org select */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Tổ chức</label>
-                <select
-                  required
-                  value={form.lastOrgId}
-                  onChange={(e) => setForm({ ...form, lastOrgId: e.target.value, projectIds: [] })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="">Chọn tổ chức</option>
-                  {orgs.map((o) => (
-                    <option key={o.id} value={o.id}>{o.name}</option>
-                  ))}
-                </select>
-              </div>
-              {/* Projects multi-select filtered by org */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Dự án</label>
-                <div className="max-h-40 overflow-y-auto border rounded-md p-2">
-                  {projects
-                    .filter(p => !form.lastOrgId || p.orgId === form.lastOrgId)
-                    .map((p) => {
-                      const checked = form.projectIds.includes(p.id);
-                      return (
-                        <label key={p.id} className="flex items-center gap-2 p-2 hover:bg-gray-50 rounded">
-                          <input
-                            type="checkbox"
-                            checked={checked}
-                            onChange={(e) => {
-                              const next = e.target.checked
-                                ? [...form.projectIds, p.id]
-                                : form.projectIds.filter(id => id !== p.id);
-                              setForm({ ...form, projectIds: next });
-                            }}
-                            className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
-                          />
-                          <span className="text-sm">{p.name}</span>
-                        </label>
-                      );
-                    })}
+              {!editingStaff && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Mật khẩu (mặc định: 123456)
+                  </label>
+                  <input
+                    type="password"
+                    value={form.password}
+                    onChange={(e) => setForm({ ...form, password: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="Để trống nếu dùng mật khẩu mặc định"
+                  />
                 </div>
-              </div>
+              )}
               <div className="flex space-x-3 pt-4">
                 <button
                   type="submit"
                   className="flex-1 bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700"
                 >
-                  Tạo nhân viên
+                  {editingStaff ? 'Cập nhật' : 'Tạo nhân viên'}
                 </button>
                 <button
                   type="button"
-                  onClick={() => setShowAddStaff(false)}
+                  onClick={() => {setShowAddStaff(false); setEditingStaff(null);}}
                   className="flex-1 bg-gray-200 text-gray-700 px-4 py-2 rounded-md hover:bg-gray-300"
                 >
                   Hủy
@@ -770,50 +742,79 @@ export default function StaffManagement() {
         </div>
       )}
 
-      {/* Assign Project Modal */}
-      {showAssignProject && selectedStaff && (
+      {/* Detail Modal */}
+      {showDetailModal && selectedStaff && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md">
-            <h3 className="text-lg font-bold mb-4">Gán dự án cho: {selectedStaff.displayName || selectedStaff.email}</h3>
-            <div className="space-y-2 max-h-96 overflow-y-auto mb-4">
-              {projects.map((project) => (
-                <label key={project.id} className="flex items-center space-x-2 p-3 hover:bg-gray-50 rounded">
-                  <input
-                    type="checkbox"
-                    defaultChecked={selectedStaff.projectIds?.includes(project.id)}
-                    className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
-                  />
-                  <span className="text-sm">{project.name}</span>
-                </label>
-              ))}
-            </div>
-            <div className="flex space-x-3 pt-4">
-              <button
-                onClick={() => {
-                  const selected = Array.from(document.querySelectorAll('input[type="checkbox"]:checked'))
-                    .map(cb => cb.parentElement.querySelector('span').textContent);
-                  const projectIds = projects
-                    .filter(p => selected.includes(p.name))
-                    .map(p => p.id);
-                  handleAssignProject(projectIds);
-                }}
-                className="flex-1 bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700"
-              >
-                Lưu
-              </button>
-              <button
-                onClick={() => {
-                  setShowAssignProject(false);
-                  setSelectedStaff(null);
-                }}
-                className="flex-1 bg-gray-200 text-gray-700 px-4 py-2 rounded-md hover:bg-gray-300"
-              >
-                Hủy
-              </button>
+          <div className="bg-white rounded-lg p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+            <h3 className="text-lg font-bold mb-4">Chi tiết nhân viên</h3>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Họ và tên</label>
+                <div className="px-3 py-2 bg-gray-50 rounded-md">{selectedStaff.displayName || '-'}</div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                <div className="px-3 py-2 bg-gray-50 rounded-md">{selectedStaff.email || '-'}</div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Số điện thoại</label>
+                <div className="px-3 py-2 bg-gray-50 rounded-md">{selectedStaff.phoneNumber || '-'}</div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Vai trò</label>
+                <div className="px-3 py-2 bg-gray-50 rounded-md">{selectedStaff.role || '-'}</div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Dự án</label>
+                <div className="px-3 py-2 bg-gray-50 rounded-md">
+                  {selectedStaff.projectIds && selectedStaff.projectIds.length > 0 ? (
+                    <ul className="list-disc list-inside space-y-1">
+                      {selectedStaff.projectIds.map((projectId, idx) => {
+                        const project = projects.find(p => p.id === projectId);
+                        return (
+                          <li key={idx} className="text-sm">
+                            {project ? project.name : projectId}
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  ) : (
+                    'Không có dự án'
+                  )}
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Trạng thái</label>
+                <div className="px-3 py-2 bg-gray-50 rounded-md">
+                  <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${selectedStaff.enable !== false ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
+                    {selectedStaff.enable !== false ? 'Hoạt động' : 'Không hoạt động'}
+                  </span>
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Code</label>
+                <div className="px-3 py-2 bg-gray-50 rounded-md">{selectedStaff.code || '-'}</div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Ngày tạo</label>
+                <div className="px-3 py-2 bg-gray-50 rounded-md">
+                  {selectedStaff.createdAt?.toDate ? new Date(selectedStaff.createdAt.toDate()).toLocaleString('vi-VN') : '-'}
+                </div>
+              </div>
+              <div className="flex space-x-3 pt-4">
+                <button
+                  type="button"
+                  onClick={() => {setShowDetailModal(false); setSelectedStaff(null);}}
+                  className="flex-1 bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700"
+                >
+                  Đóng
+                </button>
+              </div>
             </div>
           </div>
         </div>
       )}
+
     </div>
   );
 }

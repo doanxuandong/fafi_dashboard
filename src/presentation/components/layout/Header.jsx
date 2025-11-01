@@ -19,7 +19,7 @@ export default function Header({ onMenuClick }) {
   };
   
   return (
-    <header className="bg-white shadow-sm border-b border-gray-200 w-full">
+    <header className="bg-white shadow-sm border-b border-gray-200 w-full sticky top-0 z-40">
       <div className="flex items-center justify-between px-4 py-3">
         <div className="flex items-center">
           <button

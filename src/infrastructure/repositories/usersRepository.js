@@ -51,11 +51,21 @@ export async function createUser(data, user) {
     // Use a secondary app to avoid affecting current auth session
     const secondaryApp = initializeApp(firebaseConfig, 'secondary');
     const secondaryAuth = getAuth(secondaryApp);
-    const userCredential = await createUserWithEmailAndPassword(
-      secondaryAuth,
-      data.email,
-      data.password || '123456'
-    );
+    
+    let userCredential;
+    try {
+      userCredential = await createUserWithEmailAndPassword(
+        secondaryAuth,
+        data.email,
+        data.password || '123456'
+      );
+    } catch (authError) {
+      await deleteApp(secondaryApp);
+      if (authError.code === 'auth/email-already-in-use') {
+        throw new Error(`Email ${data.email} đã được sử dụng. Vui lòng chọn email khác.`);
+      }
+      throw authError;
+    }
     
     const uid = userCredential.user.uid;
     

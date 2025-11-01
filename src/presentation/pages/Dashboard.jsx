@@ -240,7 +240,7 @@ export default function Dashboard() {
       <div className="space-y-6 p-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
-          <p className="text-gray-600">Tổng quan hệ thống quản lý Mondelez</p>
+          <p className="text-gray-600">Tổng quan hệ thống quản lý</p>
         </div>
         <div className="flex items-center justify-center h-64">
           <div className="text-center">

@@ -1,32 +1,66 @@
 import { useEffect, useMemo, useState } from 'react';
 import { listProjects, createProject, updateProject, deleteProject } from '../../infrastructure/repositories/projectsRepository';
-import { listOrgs, createOrg } from '../../infrastructure/repositories/orgsRepository';
+import { listOrgs, createOrg, updateOrg, deleteOrg, uploadOrgPhoto } from '../../infrastructure/repositories/orgsRepository';
+import { getProjectMembers, getOrgMembers, addUserToOrg, addUserToProject, getUsersByIds, getUserOrgs, getUserProjects } from '../../infrastructure/repositories/membersRepository';
+import { listUsers } from '../../infrastructure/repositories/usersRepository';
 import { useAuth } from '../contexts/AuthContext';
-import { Plus, Pencil, Trash2, Search, Building, BarChart3, Package, Calendar } from 'lucide-react';
+import { Plus, Pencil, Trash2, Search, Building, BarChart3, Package, Calendar, Users, UserPlus, Image as ImageIcon, Upload } from 'lucide-react';
 import { Pagination } from 'antd';
 
-const defaultForm = { name: '', description: '', orgId: '', tags: [] };
+const defaultProjectForm = { name: '', description: '', orgId: '', tags: [] };
 
 export default function Projects() {
   const { currentUser, accessibleProjects, isRoot } = useAuth();
   const [isRootFlag, setIsRootFlag] = useState(false);
-  const [items, setItems] = useState([]);
+  
+  // Data states
+  const [items, setItems] = useState([]); // projects
   const [orgs, setOrgs] = useState([]);
+  const [projectMembers, setProjectMembers] = useState({});
+  const [orgMembers, setOrgMembers] = useState({});
+  const [allUsers, setAllUsers] = useState([]);
+  
+  // UI states
+  const [activeTab, setActiveTab] = useState('orgs');
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [showForm, setShowForm] = useState(false);
-  const [editing, setEditing] = useState(null);
-  const [form, setForm] = useState(defaultForm);
-  const [showOrgForm, setShowOrgForm] = useState(false);
-  const [orgForm, setOrgForm] = useState({ name: '', description: '' });
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage] = useState(8);
+  
+  // Project form states
+  const [showForm, setShowForm] = useState(false);
+  const [editing, setEditing] = useState(null);
+  const [form, setForm] = useState(defaultProjectForm);
+  const [showOrgForm, setShowOrgForm] = useState(false);
+  const [orgForm, setOrgForm] = useState({ name: '', code: '', description: '' });
+  const [editingOrg, setEditingOrg] = useState(null);
+  const [uploadingOrgPhoto, setUploadingOrgPhoto] = useState(false);
+  const [orgPhotoFile, setOrgPhotoFile] = useState(null);
+  
+  // User selection states (for adding to org/project)
+  const [showAddUserModal, setShowAddUserModal] = useState(false);
+  const [selectedOrgForUser, setSelectedOrgForUser] = useState(null);
+  const [selectedProjectForUser, setSelectedProjectForUser] = useState(null);
+  const [userMemberships, setUserMemberships] = useState({}); // {userId: {orgs: [], projects: []}}
+  
+  // Members modal states
+  const [showMembersModal, setShowMembersModal] = useState(false);
+  const [selectedOrgMembers, setSelectedOrgMembers] = useState([]);
+  const [selectedProjectMembers, setSelectedProjectMembers] = useState([]);
+  const [membersModalType, setMembersModalType] = useState('org'); // 'org' or 'project'
+  const [membersModalTitle, setMembersModalTitle] = useState('');
 
-  const filtered = useMemo(() => {
+  const filteredProjects = useMemo(() => {
     if (!search) return items;
     const s = search.toLowerCase();
     return items.filter(i => (i.keywords || []).some(k => k.includes(s)) || (i.name || '').toLowerCase().includes(s));
   }, [items, search]);
+
+  const filteredOrgs = useMemo(() => {
+    if (!search) return orgs;
+    const s = search.toLowerCase();
+    return orgs.filter(o => (o.keywords || []).some(k => k.includes(s)) || (o.name || '').toLowerCase().includes(s));
+  }, [orgs, search]);
 
   // Stats
   const totalProjects = items.length;
@@ -46,11 +80,12 @@ export default function Projects() {
     }).length;
   }, [items]);
 
-  // Pagination logic
-  const totalPages = Math.ceil(filtered.length / itemsPerPage);
-  const startIndex = (currentPage - 1) * itemsPerPage;
-  const endIndex = startIndex + itemsPerPage;
-  const paginatedItems = filtered.slice(startIndex, endIndex);
+  // Pagination logic for projects
+  const paginatedProjects = useMemo(() => {
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    const endIndex = startIndex + itemsPerPage;
+    return filteredProjects.slice(startIndex, endIndex);
+  }, [filteredProjects, currentPage, itemsPerPage]);
 
   // Reset to page 1 when search changes
   useEffect(() => {
@@ -59,11 +94,14 @@ export default function Projects() {
 
   const load = async () => {
     setLoading(true);
-    const [data, orgList] = await Promise.all([
+    const [data, orgList, usersList] = await Promise.all([
       listProjects({ accessibleProjectIds: accessibleProjects }),
-      listOrgs()
+      listOrgs(),
+      listUsers()
     ]);
     setItems(data);
+    setAllUsers(usersList);
+    
     // Non-root: limit orgs to those that have at least one accessible project
     if (accessibleProjects === '*' ) {
       setOrgs(orgList);
@@ -71,12 +109,39 @@ export default function Projects() {
       const accessibleSet = new Set((data || []).map(p => p.orgId));
       setOrgs((orgList || []).filter(o => accessibleSet.has(o.id)));
     }
+    
+    // Load members for each project
+    const projectMembersMap = {};
+    for (const project of data) {
+      try {
+        const members = await getProjectMembers(project.id);
+        projectMembersMap[project.id] = members.length;
+      } catch (error) {
+        console.error(`Error loading members for project ${project.id}:`, error);
+        projectMembersMap[project.id] = 0;
+      }
+    }
+    setProjectMembers(projectMembersMap);
+    
+    // Load members for each org
+    const orgMembersMap = {};
+    for (const org of orgList) {
+      try {
+        const members = await getOrgMembers(org.id);
+        orgMembersMap[org.id] = members.length;
+      } catch (error) {
+        console.error(`Error loading members for org ${org.id}:`, error);
+        orgMembersMap[org.id] = 0;
+      }
+    }
+    setOrgMembers(orgMembersMap);
+    
     setLoading(false);
   };
 
   useEffect(() => { (async () => { setIsRootFlag(await isRoot()); await load(); })(); }, [accessibleProjects]);
 
-  const submit = async (e) => {
+  const submitProject = async (e) => {
     e.preventDefault();
     if (!form.name?.trim()) return;
     if (editing) {
@@ -86,11 +151,11 @@ export default function Projects() {
     }
     setShowForm(false);
     setEditing(null);
-    setForm(defaultForm);
+    setForm(defaultProjectForm);
     await load();
   };
 
-  const onEdit = (item) => {
+  const onEditProject = (item) => {
     setEditing(item);
     setForm({ 
       name: item.name || '', 
@@ -101,7 +166,7 @@ export default function Projects() {
     setShowForm(true);
   };
 
-  const onDelete = async (id) => {
+  const onDeleteProject = async (id) => {
     if (!confirm('Xóa dự án này?')) return;
     await deleteProject(id);
     await load();
@@ -111,28 +176,94 @@ export default function Projects() {
     e.preventDefault();
     if (!orgForm.name?.trim()) return;
     try {
-      const newOrg = await createOrg(orgForm, currentUser);
-      setOrgs([...orgs, newOrg]);
-      setForm({...form, orgId: newOrg.id});
+      setUploadingOrgPhoto(true);
+      let photoUrls = [];
+      
+      if (editingOrg) {
+        // Sửa org: upload ảnh nếu có
+        if (orgPhotoFile) {
+          const photoUrl = await uploadOrgPhoto(editingOrg.id, orgPhotoFile);
+          photoUrls = [photoUrl];
+        }
+        await updateOrg(editingOrg.id, { ...orgForm, photoUrls: photoUrls.length > 0 ? photoUrls : orgForm.photoUrls }, currentUser);
+      } else {
+        // Tạo org mới: tạo document trước, rồi upload ảnh
+        const newOrg = await createOrg(orgForm, currentUser);
+        if (orgPhotoFile) {
+          const photoUrl = await uploadOrgPhoto(newOrg.id, orgPhotoFile);
+          photoUrls = [photoUrl];
+          await updateOrg(newOrg.id, { photoUrls }, currentUser);
+        }
+      }
+      
       setShowOrgForm(false);
-      setOrgForm({ name: '', description: '' });
+      setOrgForm({ name: '', code: '', description: '' });
+      setEditingOrg(null);
+      setOrgPhotoFile(null);
+      await load();
     } catch (error) {
-      console.error('Error creating org:', error);
+      console.error('Error saving org:', error);
+      alert('Lỗi lưu tổ chức: ' + error.message);
+    } finally {
+      setUploadingOrgPhoto(false);
     }
   };
+
+  const onEditOrg = (org) => {
+    setEditingOrg(org);
+    setOrgForm({ name: org.name || '', code: org.code || '', description: org.description || '', photoUrls: org.photoUrls || [] });
+    setOrgPhotoFile(null);
+    setShowOrgForm(true);
+  };
+
+  const onDeleteOrg = async (id) => {
+    if (!confirm('Xóa tổ chức này?')) return;
+    await deleteOrg(id);
+    await load();
+  };
+
+  // Load user memberships from orgs_members and projects_members
+  const loadUserMemberships = async () => {
+    const memberships = {};
+    for (const user of allUsers) {
+      const userOrgsData = await getUserOrgs(user.id);
+      const userProjectsData = await getUserProjects(user.id);
+      memberships[user.id] = {
+        orgs: userOrgsData.map(m => m.orgId),
+        projects: userProjectsData.map(m => m.projectId)
+      };
+    }
+    setUserMemberships(memberships);
+  };
+
+  // Load memberships when opening add user modal
+  useEffect(() => {
+    if (showAddUserModal) {
+      loadUserMemberships();
+    }
+  }, [showAddUserModal]);
 
   return (
     <div className="space-y-6 p-4">
       {/* Page header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Quản lý dự án</h1>
-          <p className="text-gray-600">Quản lý danh sách dự án theo công ty</p>
+          <h1 className="text-2xl font-bold text-gray-900">Tổ chức & Dự án</h1>
+          <p className="text-gray-600">Quản lý tổ chức, dự án và nhân sự</p>
         </div>
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="bg-white p-4 rounded-lg shadow-sm border">
+          <div className="flex items-center">
+            <Building className="w-5 h-5 text-green-600" />
+            <div className="ml-3">
+              <p className="text-sm text-gray-600">Tổng tổ chức</p>
+              <p className="text-xl font-semibold">{totalOrgs}</p>
+            </div>
+          </div>
+        </div>
         <div className="bg-white p-4 rounded-lg shadow-sm border">
           <div className="flex items-center">
             <Package className="w-5 h-5 text-blue-600" />
@@ -144,53 +275,170 @@ export default function Projects() {
         </div>
         <div className="bg-white p-4 rounded-lg shadow-sm border">
           <div className="flex items-center">
-            <Building className="w-5 h-5 text-green-600" />
+            <Users className="w-5 h-5 text-purple-600" />
             <div className="ml-3">
-              <p className="text-sm text-gray-600">Tổng công ty</p>
-              <p className="text-xl font-semibold">{totalOrgs}</p>
-            </div>
-          </div>
-        </div>
-        <div className="bg-white p-4 rounded-lg shadow-sm border">
-          <div className="flex items-center">
-            <BarChart3 className="w-5 h-5 text-purple-600" />
-            <div className="ml-3">
-              <p className="text-sm text-gray-600">Số tag khác nhau</p>
-              <p className="text-xl font-semibold">{uniqueTags}</p>
-            </div>
-          </div>
-        </div>
-        <div className="bg-white p-4 rounded-lg shadow-sm border">
-          <div className="flex items-center">
-            <Calendar className="w-5 h-5 text-orange-600" />
-            <div className="ml-3">
-              <p className="text-sm text-gray-600">Tạo mới trong tháng</p>
-              <p className="text-xl font-semibold">{projectsThisMonth}</p>
+              <p className="text-sm text-gray-600">Tổng nhân viên</p>
+              <p className="text-xl font-semibold">{allUsers.length}</p>
             </div>
           </div>
         </div>
       </div>
 
+      {/* Tabs */}
       <div className="bg-white shadow rounded-lg">
+        <div className="border-b border-gray-200">
+          <nav className="-mb-px flex space-x-8 px-6">
+            <button
+              onClick={() => setActiveTab('orgs')}
+              className={`py-4 px-1 border-b-2 font-medium text-sm ${
+                activeTab === 'orgs'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              Tổ chức
+            </button>
+            <button
+              onClick={() => setActiveTab('projects')}
+              className={`py-4 px-1 border-b-2 font-medium text-sm ${
+                activeTab === 'projects'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              Dự án
+            </button>
+          </nav>
+        </div>
+
         <div className="p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-medium text-gray-900">Danh sách dự án</h3>
-            <div className="flex items-center gap-3">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
-                <input 
-                  value={search} 
-                  onChange={(e) => setSearch(e.target.value)} 
-                  placeholder="Tìm kiếm..." 
-                  className="pl-10 pr-4 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 sm:text-sm" 
-                />
+          {/* Tab: Orgs */}
+          {activeTab === 'orgs' && (
+            <>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-medium text-gray-900">Danh sách tổ chức</h3>
+                <div className="flex items-center gap-3">
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+                    <input 
+                      value={search} 
+                      onChange={(e) => setSearch(e.target.value)} 
+                      placeholder="Tìm kiếm..." 
+                      className="pl-10 pr-4 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 sm:text-sm" 
+                    />
+                  </div>
+                  {isRootFlag && (
+                    <button onClick={() => setShowOrgForm(true)} className="bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700 transition-colors flex items-center space-x-2">
+                      <Plus className="w-4 h-4" />
+                      <span>Thêm tổ chức</span>
+                    </button>
+                  )}
+                </div>
               </div>
-              <button onClick={() => { setShowForm(true); setEditing(null); setForm(defaultForm); }} className="bg-indigo-600 text-white px-4 py-2 rounded-md hover:bg-indigo-700 transition-colors flex items-center space-x-2">
-                <Plus className="w-4 h-4" />
-                <span>Thêm dự án</span>
-              </button>
-            </div>
-          </div>
+
+              {loading ? (
+                <div className="text-center py-8 text-gray-500">Đang tải...</div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="min-w-full divide-y divide-gray-200">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Ảnh</th>
+                        <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Tên tổ chức</th>
+                        <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Mô tả</th>
+                        <th className="text-center px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Thành viên</th>
+                        <th className="w-24 px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Thao tác</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {orgs.map((org) => (
+                        <tr key={org.id} className="border-t hover:bg-gray-50">
+                          <td className="px-6 py-4">
+                            {org.photoUrls && org.photoUrls.length > 0 ? (
+                              <img src={org.photoUrls[0]} alt={org.name} className="w-16 h-16 object-cover rounded-lg" />
+                            ) : (
+                              <div className="w-16 h-16 bg-gray-100 rounded-lg flex items-center justify-center">
+                                <ImageIcon className="w-8 h-8 text-gray-400" />
+                              </div>
+                            )}
+                          </td>
+                          <td className="px-6 py-4 font-medium">{org.name}</td>
+                          <td className="px-6 py-4 text-gray-600">{org.description}</td>
+                          <td className="px-6 py-4 text-center">
+                            <button
+                              onClick={async () => {
+                                const members = await getOrgMembers(org.id);
+                                const userIds = members.map(m => m.userId);
+                                const users = await getUsersByIds(userIds);
+                                const membersWithUsers = members.map(m => ({
+                                  ...m,
+                                  user: users.find(u => u.id === m.userId)
+                                }));
+                                setSelectedOrgMembers(membersWithUsers);
+                                setMembersModalType('org');
+                                setMembersModalTitle(`Thành viên của ${org.name}`);
+                                setShowMembersModal(true);
+                              }}
+                              className="inline-flex items-center gap-1 text-gray-700 hover:text-blue-600 transition-colors cursor-pointer"
+                            >
+                              <Users className="w-4 h-4" />
+                              <span className="font-medium">{orgMembers[org.id] || 0}</span>
+                            </button>
+                          </td>
+                          <td className="px-6 py-4">
+                            <div className="flex items-center gap-2">
+                              <button onClick={() => {setSelectedOrgForUser(org); setShowAddUserModal(true);}} className="p-2 hover:bg-gray-100 rounded" title="Thêm nhân sự">
+                                <UserPlus className="w-4 h-4 text-blue-600" />
+                              </button>
+                              {isRootFlag && (
+                                <>
+                                  <button onClick={() => onEditOrg(org)} className="p-2 hover:bg-gray-100 rounded" title="Sửa">
+                                    <Pencil className="w-4 h-4" />
+                                  </button>
+                                  <button onClick={() => onDeleteOrg(org.id)} className="p-2 hover:bg-gray-100 rounded text-red-600" title="Xóa">
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                      {orgs.length === 0 && (
+                        <tr>
+                          <td className="px-6 py-6 text-center text-gray-500" colSpan="5">Không có dữ liệu</td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </>
+          )}
+
+          {/* Tab: Projects */}
+          {activeTab === 'projects' && (
+            <>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-medium text-gray-900">Danh sách dự án</h3>
+                <div className="flex items-center gap-3">
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+                    <input 
+                      value={search} 
+                      onChange={(e) => setSearch(e.target.value)} 
+                      placeholder="Tìm kiếm..." 
+                      className="pl-10 pr-4 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 sm:text-sm" 
+                    />
+                  </div>
+                  {isRootFlag && (
+                    <button onClick={() => { setShowForm(true); setEditing(null); setForm(defaultProjectForm); }} className="bg-indigo-600 text-white px-4 py-2 rounded-md hover:bg-indigo-700 transition-colors flex items-center space-x-2">
+                      <Plus className="w-4 h-4" />
+                      <span>Thêm dự án</span>
+                    </button>
+                  )}
+                </div>
+              </div>
 
           {loading ? (
             <div className="text-center py-8 text-gray-500">Đang tải...</div>
@@ -202,60 +450,93 @@ export default function Projects() {
                     <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Tên dự án</th>
                     <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Mô tả</th>
                     <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Công ty</th>
+                    <th className="text-center px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Thành viên</th>
                     <th className="w-24 px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Thao tác</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {paginatedItems.map((item) => (
+                  {paginatedProjects.map((item) => (
                     <tr key={item.id} className="border-t hover:bg-gray-50">
                       <td className="px-6 py-4 font-medium">{item.name}</td>
                       <td className="px-6 py-4 text-gray-600">{item.description}</td>
                       <td className="px-6 py-4">{orgs.find(o => o.id === item.orgId)?.name || '-'}</td>
+                      <td className="px-6 py-4 text-center">
+                        <button
+                          onClick={async () => {
+                            const members = await getProjectMembers(item.id);
+                            const userIds = members.map(m => m.userId);
+                            const users = await getUsersByIds(userIds);
+                            const membersWithUsers = members.map(m => ({
+                              ...m,
+                              user: users.find(u => u.id === m.userId)
+                            }));
+                            setSelectedProjectMembers(membersWithUsers);
+                            setMembersModalType('project');
+                            setMembersModalTitle(`Thành viên của ${item.name}`);
+                            setShowMembersModal(true);
+                          }}
+                          className="inline-flex items-center gap-1 text-gray-700 hover:text-blue-600 transition-colors cursor-pointer"
+                        >
+                          <Users className="w-4 h-4" />
+                          <span className="font-medium">{projectMembers[item.id] || 0}</span>
+                        </button>
+                      </td>
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-2">
-                          <button onClick={() => onEdit(item)} className="p-2 hover:bg-gray-100 rounded"><Pencil className="w-4 h-4" /></button>
-                          <button onClick={() => onDelete(item.id)} className="p-2 hover:bg-gray-100 rounded text-red-600"><Trash2 className="w-4 h-4" /></button>
+                          <button onClick={() => {setSelectedProjectForUser(item); setShowAddUserModal(true);}} className="p-2 hover:bg-gray-100 rounded" title="Thêm nhân sự">
+                            <UserPlus className="w-4 h-4 text-blue-600" />
+                          </button>
+                          {isRootFlag && (
+                            <>
+                              <button onClick={() => onEditProject(item)} className="p-2 hover:bg-gray-100 rounded" title="Sửa"><Pencil className="w-4 h-4" /></button>
+                              <button onClick={() => onDeleteProject(item.id)} className="p-2 hover:bg-gray-100 rounded text-red-600" title="Xóa"><Trash2 className="w-4 h-4" /></button>
+                            </>
+                          )}
                         </div>
                       </td>
                     </tr>
                   ))}
-                  {paginatedItems.length === 0 && (
+                  {paginatedProjects.length === 0 && (
                     <tr>
-                      <td className="px-6 py-6 text-center text-gray-500" colSpan="4">Không có dữ liệu</td>
+                      <td className="px-6 py-6 text-center text-gray-500" colSpan="5">Không có dữ liệu</td>
                     </tr>
                   )}
                 </tbody>
               </table>
             </div>
           )}
-        </div>
-      </div>
+            </>
+          )}
 
-      {/* Pagination */}
-      {filtered.length > 0 && (
-        <div className="mt-6 flex justify-center">
-          <Pagination
-            current={currentPage}
-            total={filtered.length}
-            pageSize={itemsPerPage}
-            showSizeChanger={false}
-            showQuickJumper={false}
-            showTotal={false}
-            onChange={(page) => setCurrentPage(page)}
-            className="ant-pagination-custom"
-          />
+          {/* Add other tabs here later */}
         </div>
-      )}
+
+        {/* Pagination for Projects tab */}
+        {activeTab === 'projects' && paginatedProjects.length > 0 && (
+          <div className="px-6 pb-6 flex justify-center">
+            <Pagination
+              current={currentPage}
+              total={filteredProjects.length}
+              pageSize={itemsPerPage}
+              showSizeChanger={false}
+              showQuickJumper={false}
+              showTotal={false}
+              onChange={(page) => setCurrentPage(page)}
+              className="ant-pagination-custom"
+            />
+          </div>
+        )}
+      </div>
 
       {/* Modal sửa/tạo dự án */}
       {showForm && (
         <div 
-          className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50"
+          className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-[9999]"
           onClick={(e) => {
             if (e.target === e.currentTarget) {
               setShowForm(false);
               setEditing(null);
-              setForm(defaultForm);
+              setForm(defaultProjectForm);
             }
           }}
         >
@@ -263,7 +544,7 @@ export default function Projects() {
             <h3 className="text-lg font-semibold mb-4">
               {editing ? 'Sửa dự án' : 'Thêm dự án mới'}
             </h3>
-            <form onSubmit={submit} className="space-y-4">
+            <form onSubmit={submitProject} className="space-y-4">
               <div>
                 <label className="block text-sm font-medium mb-1">Tên dự án</label>
                 <input 
@@ -310,7 +591,7 @@ export default function Projects() {
               <div className="flex items-center justify-end gap-2 pt-2">
                 <button 
                   type="button" 
-                  onClick={()=>{setShowForm(false); setEditing(null); setForm(defaultForm);}} 
+                  onClick={()=>{setShowForm(false); setEditing(null); setForm(defaultProjectForm);}} 
                   className="px-3 py-2 rounded border"
                 >
                   Hủy
@@ -324,27 +605,39 @@ export default function Projects() {
         </div>
       )}
 
-      {/* Modal tạo org nhanh */}
+      {/* Modal tạo/sửa org */}
       {showOrgForm && isRootFlag && (
         <div 
-          className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50"
+          className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-[9999]"
           onClick={(e) => {
             if (e.target === e.currentTarget) {
               setShowOrgForm(false);
-              setOrgForm({ name: '', description: '' });
+              setOrgForm({ name: '', code: '', description: '' });
+              setEditingOrg(null);
             }
           }}
         >
           <div className="bg-white rounded-lg w-full max-w-md p-6">
-            <h3 className="text-lg font-semibold mb-4">Tạo công ty mới</h3>
+            <h3 className="text-lg font-semibold mb-4">
+              {editingOrg ? 'Sửa tổ chức' : 'Tạo tổ chức mới'}
+            </h3>
             <form onSubmit={createNewOrg} className="space-y-4">
               <div>
-                <label className="block text-sm font-medium mb-1">Tên công ty</label>
+                <label className="block text-sm font-medium mb-1">Tên tổ chức *</label>
                 <input 
                   value={orgForm.name} 
                   onChange={(e)=>setOrgForm({...orgForm, name: e.target.value})} 
                   className="w-full border rounded-lg px-3 py-2" 
                   required 
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Mã tổ chức</label>
+                <input 
+                  value={orgForm.code || ''} 
+                  onChange={(e)=>setOrgForm({...orgForm, code: e.target.value})} 
+                  className="w-full border rounded-lg px-3 py-2" 
+                  placeholder="Để trống nếu không có"
                 />
               </div>
               <div>
@@ -356,24 +649,258 @@ export default function Projects() {
                   rows={3} 
                 />
               </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Ảnh tổ chức</label>
+                <div className="space-y-2">
+                  {orgForm.photoUrls && orgForm.photoUrls.length > 0 && !orgPhotoFile && (
+                    <div className="relative inline-block">
+                      <img src={orgForm.photoUrls[0]} alt="Current" className="w-32 h-32 object-cover rounded-lg border" />
+                    </div>
+                  )}
+                  <label className="flex items-center justify-center w-full px-4 py-2 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-blue-500 transition-colors">
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) setOrgPhotoFile(file);
+                      }}
+                      className="hidden"
+                    />
+                    <div className="flex items-center space-x-2">
+                      <Upload className="w-5 h-5 text-gray-500" />
+                      <span className="text-sm text-gray-700">{orgPhotoFile ? orgPhotoFile.name : 'Chọn ảnh...'}</span>
+                    </div>
+                  </label>
+                </div>
+              </div>
               <div className="flex items-center justify-end gap-2 pt-2">
                 <button 
                   type="button" 
-                  onClick={()=>{setShowOrgForm(false); setOrgForm({ name: '', description: '' });}} 
+                  onClick={()=>{setShowOrgForm(false); setOrgForm({ name: '', description: '' }); setEditingOrg(null);}} 
                   className="px-3 py-2 rounded border"
                 >
                   Hủy
                 </button>
-                <button type="submit" className="px-3 py-2 rounded bg-green-600 text-white">
-                  Tạo công ty
+                <button type="submit" className="px-3 py-2 rounded bg-green-600 text-white" disabled={uploadingOrgPhoto}>
+                  {uploadingOrgPhoto ? 'Đang tải lên...' : (editingOrg ? 'Cập nhật' : 'Tạo tổ chức')}
                 </button>
               </div>
             </form>
           </div>
         </div>
       )}
+
+      {/* Modal Select User to Add */}
+      {showAddUserModal && (selectedOrgForUser || selectedProjectForUser) && (
+        <div 
+          className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-[9999]"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              setShowAddUserModal(false);
+              setSelectedOrgForUser(null);
+              setSelectedProjectForUser(null);
+            }
+          }}
+        >
+          <div className="bg-white rounded-lg w-full max-w-5xl p-6 max-h-[90vh] overflow-y-auto">
+            <h3 className="text-lg font-semibold mb-4">
+              {selectedOrgForUser ? `Chọn nhân sự thêm vào tổ chức: ${selectedOrgForUser.name}` : `Chọn nhân sự thêm vào dự án: ${selectedProjectForUser.name}`}
+            </h3>
+            
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Tên</th>
+                    <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Email</th>
+                    <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Role</th>
+                    <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Tổ chức</th>
+                    <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Dự án</th>
+                    <th className="w-24 px-4 py-3 text-xs font-medium text-gray-500 uppercase">Thao tác</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {allUsers.map((user) => {
+                    // Get user's orgs and projects from memberships (real-time from orgs_members and projects_members)
+                    const userOrgs = userMemberships[user.id]?.orgs || [];
+                    const userProjects = userMemberships[user.id]?.projects || [];
+                    const orgNames = userOrgs.map(orgId => orgs.find(o => o.id === orgId)?.name).filter(Boolean).join(', ') || '-';
+                    const projectNames = userProjects.map(pId => items.find(p => p.id === pId)?.name).filter(Boolean).join(', ') || '-';
+                    
+                    return (
+                      <tr key={user.id} className="hover:bg-gray-50">
+                        <td className="px-4 py-3 text-sm font-medium">{user.displayName || user.email}</td>
+                        <td className="px-4 py-3 text-sm text-gray-600">{user.email}</td>
+                        <td className="px-4 py-3 text-sm text-gray-600">{user.role}</td>
+                        <td className="px-4 py-3 text-sm text-gray-600">{orgNames}</td>
+                        <td className="px-4 py-3 text-sm text-gray-600">{projectNames}</td>
+                        <td className="px-4 py-3">
+                          <button
+                            onClick={async () => {
+                              try {
+                                if (selectedOrgForUser) {
+                                  await addUserToOrg(user.id, selectedOrgForUser.id, user.role, [], currentUser.uid);
+                                } else if (selectedProjectForUser) {
+                                  const project = items.find(p => p.id === selectedProjectForUser.id);
+                                  await addUserToProject(user.id, selectedProjectForUser.id, project.orgId, user.role, [], currentUser.uid);
+                                }
+                                // Reload memberships to show updated data
+                                await loadUserMemberships();
+                                await load();
+                              } catch (error) {
+                                alert('Lỗi thêm nhân sự: ' + error.message);
+                              }
+                            }}
+                            className="px-3 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700"
+                          >
+                            Thêm
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {allUsers.length === 0 && (
+                    <tr>
+                      <td colSpan="6" className="px-4 py-8 text-center text-gray-500">
+                        Không có nhân sự nào
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+            
+            <div className="flex justify-end gap-2 mt-4 pt-4 border-t">
+              <button
+                onClick={() => {
+                  setShowAddUserModal(false);
+                  setSelectedOrgForUser(null);
+                  setSelectedProjectForUser(null);
+                }}
+                className="px-4 py-2 rounded bg-gray-200 text-gray-700 hover:bg-gray-300"
+              >
+                Đóng
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal hiển thị danh sách thành viên */}
+      {showMembersModal && (
+        <div 
+          className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-[9999]"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              setShowMembersModal(false);
+              setSelectedOrgMembers([]);
+              setSelectedProjectMembers([]);
+            }
+          }}
+        >
+          <div className="bg-white rounded-lg w-full max-w-4xl p-6 max-h-[90vh] overflow-y-auto">
+            <h3 className="text-lg font-semibold mb-4">{membersModalTitle}</h3>
+            
+            {membersModalType === 'org' && (() => {
+              const groupedByRole = selectedOrgMembers.reduce((acc, member) => {
+                // Sử dụng role từ user profile thay vì từ orgs_members
+                const role = member.user?.role || member.role || 'unknown';
+                if (!acc[role]) acc[role] = [];
+                acc[role].push(member);
+                return acc;
+              }, {});
+              
+              return (
+                <div className="space-y-6">
+                  {Object.keys(groupedByRole).map((role) => (
+                    <div key={role} className="border-b pb-4 last:border-b-0">
+                      <h4 className="text-md font-semibold mb-3 text-gray-700 uppercase">{role}</h4>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        {groupedByRole[role].map((member, idx) => (
+                          <div key={idx} className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
+                            {member.user?.photoUrl ? (
+                              <img src={member.user.photoUrl} alt={member.user.displayName} className="w-10 h-10 rounded-full object-cover" />
+                            ) : (
+                              <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center">
+                                <span className="text-blue-600 font-semibold">{member.user?.displayName?.charAt(0) || 'U'}</span>
+                              </div>
+                            )}
+                            <div className="flex-1">
+                              <div className="font-medium text-sm">{member.user?.displayName || 'Unknown'}</div>
+                              <div className="text-xs text-gray-500">{member.user?.email || '-'}</div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                  {Object.keys(groupedByRole).length === 0 && (
+                    <div className="text-center py-8 text-gray-500">Không có thành viên</div>
+                  )}
+                </div>
+              );
+            })()}
+            
+            {membersModalType === 'project' && (() => {
+              const groupedByRole = selectedProjectMembers.reduce((acc, member) => {
+                // Sử dụng role từ user profile thay vì từ projects_members
+                const role = member.user?.role || member.role || 'unknown';
+                if (!acc[role]) acc[role] = [];
+                acc[role].push(member);
+                return acc;
+              }, {});
+              
+              return (
+                <div className="space-y-6">
+                  {Object.keys(groupedByRole).map((role) => (
+                    <div key={role} className="border-b pb-4 last:border-b-0">
+                      <h4 className="text-md font-semibold mb-3 text-gray-700 uppercase">{role}</h4>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        {groupedByRole[role].map((member, idx) => (
+                          <div key={idx} className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
+                            {member.user?.photoUrl ? (
+                              <img src={member.user.photoUrl} alt={member.user.displayName} className="w-10 h-10 rounded-full object-cover" />
+                            ) : (
+                              <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center">
+                                <span className="text-blue-600 font-semibold">{member.user?.displayName?.charAt(0) || 'U'}</span>
+                              </div>
+                            )}
+                            <div className="flex-1">
+                              <div className="font-medium text-sm">{member.user?.displayName || 'Unknown'}</div>
+                              <div className="text-xs text-gray-500">{member.user?.email || '-'}</div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                  {Object.keys(groupedByRole).length === 0 && (
+                    <div className="text-center py-8 text-gray-500">Không có thành viên</div>
+                  )}
+                </div>
+              );
+            })()}
+            
+            <div className="flex justify-end gap-3 mt-6 pt-4 border-t">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowMembersModal(false);
+                  setSelectedOrgMembers([]);
+                  setSelectedProjectMembers([]);
+                }}
+                className="px-4 py-2 rounded bg-gray-200 text-gray-700 hover:bg-gray-300"
+              >
+                Đóng
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+
 
 

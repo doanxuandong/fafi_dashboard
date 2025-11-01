@@ -1,5 +1,6 @@
-import { collection, getDocs, doc, setDoc, orderBy, query, serverTimestamp } from 'firebase/firestore';
-import { db } from '../services/firebase';
+import { collection, getDocs, getDoc, doc, setDoc, updateDoc, deleteDoc, orderBy, query, serverTimestamp } from 'firebase/firestore';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { db, storage } from '../services/firebase';
 
 const COLLECTION = 'orgs';
 
@@ -18,7 +19,10 @@ export async function createOrg(data, user) {
   
   const payload = {
     id,
-    ...data,
+    name: data.name || '',
+    code: data.code || null,
+    description: data.description || null,
+    photoUrls: data.photoUrls || [],
     createdAt: serverTimestamp(),
     createdBy: user?.uid || 'system',
     keywords: data.keywords || generateKeywords(data.name),
@@ -26,6 +30,41 @@ export async function createOrg(data, user) {
   
   await setDoc(docRef, payload);
   return { id, ...payload };
+}
+
+export async function updateOrg(id, data, user) {
+  const docRef = doc(db, COLLECTION, id);
+  const payload = {
+    ...data,
+    updatedAt: serverTimestamp(),
+    updatedBy: user?.uid || 'system',
+  };
+  if (data.name) {
+    payload.keywords = generateKeywords(data.name);
+  }
+  await updateDoc(docRef, payload);
+  return { id, ...payload };
+}
+
+export async function uploadOrgPhoto(orgId, file) {
+  try {
+    const timestamp = Date.now();
+    const fileName = `fafi_image_${timestamp}.${file.name.split('.').pop()}`;
+    const storageRef = ref(storage, `orgs/${orgId}/photos/${fileName}`);
+    
+    await uploadBytes(storageRef, file);
+    const downloadURL = await getDownloadURL(storageRef);
+    
+    return downloadURL;
+  } catch (error) {
+    console.error('Error uploading org photo:', error);
+    throw error;
+  }
+}
+
+export async function deleteOrg(id) {
+  const docRef = doc(db, COLLECTION, id);
+  await deleteDoc(docRef);
 }
 
 export function generateKeywords(text = '') {
@@ -40,5 +79,4 @@ export function generateKeywords(text = '') {
   result.add(t);
   return Array.from(result);
 }
-
 
