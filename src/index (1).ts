@@ -251,6 +251,16 @@ export interface ScheduleEntity {
   createdAt: Date;
 }
 
+export interface ProjectLocationEntity {
+  id: string;
+  projectId: string;
+  locationId: string;
+  orgId: string;
+  keywords: string[];
+  createdAt: Date;
+  createdBy: string;
+}
+
 export interface KPITarget {
   id: string;
   projectId: string;

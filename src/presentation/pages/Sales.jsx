@@ -2,15 +2,19 @@ import { useEffect, useMemo, useState } from 'react';
 import { listSales, createSale, updateSale, deleteSale, calculateTotalAmount, calculateTotalQuantity } from '../../infrastructure/repositories/salesRepository';
 import { listProjects } from '../../infrastructure/repositories/projectsRepository';
 import { listLocations } from '../../infrastructure/repositories/locationsRepository';
+import { uploadOrgPhoto } from '../../infrastructure/repositories/orgsRepository';
 import { useAuth } from '../contexts/AuthContext';
-import { Plus, Pencil, Trash2, Search, ShoppingCart, Receipt, Package, MapPin, Calendar, DollarSign, Hash, Eye } from 'lucide-react';
+import { Plus, Pencil, Trash2, Search, ShoppingCart, Receipt, Package, MapPin, Calendar, DollarSign, Hash, Eye, X, Upload, Image as ImageIcon } from 'lucide-react';
 import { Pagination } from 'antd';
 
 const defaultForm = { 
   locationId: '', 
+  locationName: '',
   projectId: '', 
   sessionId: '',
   buyerId: '',
+  buyerName: '',
+  buyerPhone: '',
   buyProducts: [],
   getPremiums: [],
   notes: '', 
@@ -32,6 +36,7 @@ export default function Sales() {
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage] = useState(8);
   const [showDetails, setShowDetails] = useState(null);
+  const [uploadingPhotos, setUploadingPhotos] = useState(false);
 
   const filtered = useMemo(() => {
     if (!search) return items;
@@ -87,10 +92,11 @@ export default function Sales() {
     if (!form.locationId || !form.projectId) return;
     
     try {
+      const userName = currentUser?.displayName || currentUser?.email || null;
       if (editing) {
         await updateSale(editing.id, form, currentUser);
       } else {
-        await createSale(form, currentUser);
+        await createSale(form, currentUser, userName);
       }
       setShowForm(false);
       setEditing(null);
@@ -106,9 +112,12 @@ export default function Sales() {
     setEditing(item);
     setForm({ 
       locationId: item.locationId || '', 
+      locationName: item.locationName || '',
       projectId: item.projectId || '', 
       sessionId: item.sessionId || '',
       buyerId: item.buyerId || '',
+      buyerName: item.buyerName || '',
+      buyerPhone: item.buyerPhone || '',
       buyProducts: item.buyProducts || [],
       getPremiums: item.getPremiums || [],
       notes: item.notes || '', 
@@ -131,9 +140,11 @@ export default function Sales() {
   };
 
   const handleLocationChange = (locationId) => {
+    const location = locations.find(l => l.id === locationId);
     setForm({
       ...form,
-      locationId
+      locationId,
+      locationName: location ? location.name : ''
     });
   };
 
@@ -169,7 +180,7 @@ export default function Sales() {
   const addProduct = () => {
     setForm({
       ...form,
-      buyProducts: [...form.buyProducts, { name: '', quantity: 1, price: 0, unit: 'cái' }]
+      buyProducts: [...form.buyProducts, { id: '', name: '', qty: 1, moneyAmount: 0, unit: 'cái' }]
     });
   };
 
@@ -187,7 +198,7 @@ export default function Sales() {
   const addPremium = () => {
     setForm({
       ...form,
-      getPremiums: [...form.getPremiums, { name: '', quantity: 1, value: 0 }]
+      getPremiums: [...form.getPremiums, { id: '', name: '', qty: 1, moneyAmount: 0, schemeId: '', unit: '' }]
     });
   };
 
@@ -200,6 +211,38 @@ export default function Sales() {
   const removePremium = (index) => {
     const newPremiums = form.getPremiums.filter((_, i) => i !== index);
     setForm({ ...form, getPremiums: newPremiums });
+  };
+
+  const handlePhotoUpload = async (e, type) => {
+    const files = Array.from(e.target.files);
+    if (files.length === 0) return;
+
+    setUploadingPhotos(true);
+    try {
+      const uploadPromises = files.map(file => 
+        uploadOrgPhoto(file, `sales/${form.projectId || 'temp'}`)
+      );
+      const urls = await Promise.all(uploadPromises);
+      
+      if (type === 'bill') {
+        setForm({ ...form, billPhotos: [...form.billPhotos, ...urls] });
+      } else {
+        setForm({ ...form, photos: [...form.photos, ...urls] });
+      }
+    } catch (error) {
+      console.error('Error uploading photos:', error);
+      alert('Có lỗi xảy ra khi tải ảnh lên');
+    } finally {
+      setUploadingPhotos(false);
+    }
+  };
+
+  const removePhoto = (index, type) => {
+    if (type === 'bill') {
+      setForm({ ...form, billPhotos: form.billPhotos.filter((_, i) => i !== index) });
+    } else {
+      setForm({ ...form, photos: form.photos.filter((_, i) => i !== index) });
+    }
   };
 
   const totalAmount = calculateTotalAmount(form.buyProducts);
@@ -294,7 +337,7 @@ export default function Sales() {
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tổng tiền</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Thời gian</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Mã OTP</th>
-                    <th className="w-24 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Thao tác</th>
+                    <th className="w-24 px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Thao tác</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -360,8 +403,8 @@ export default function Sales() {
                       <td className="px-6 py-4">
                         <span className="text-sm">{item.otpCode || '-'}</span>
                       </td>
-                      <td className="px-6 py-4">
-                        <div className="flex items-center gap-2">
+                      <td className="px-6 py-4 text-right">
+                        <div className="flex items-center gap-2 justify-end">
                           <button 
                             onClick={() => setShowDetails(item)} 
                             className="p-2 hover:bg-gray-100 rounded"
@@ -466,7 +509,7 @@ export default function Sales() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
                   <label className="block text-sm font-medium mb-1">ID Người mua</label>
                   <input 
@@ -474,6 +517,36 @@ export default function Sales() {
                     onChange={(e)=>setForm({...form, buyerId: e.target.value})} 
                     className="w-full border rounded-lg px-3 py-2" 
                     placeholder="Nhập ID người mua..."
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Tên người mua</label>
+                  <input 
+                    value={form.buyerName} 
+                    onChange={(e)=>setForm({...form, buyerName: e.target.value})} 
+                    className="w-full border rounded-lg px-3 py-2" 
+                    placeholder="Nhập tên người mua..."
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">SĐT người mua</label>
+                  <input 
+                    value={form.buyerPhone} 
+                    onChange={(e)=>setForm({...form, buyerPhone: e.target.value})} 
+                    className="w-full border rounded-lg px-3 py-2" 
+                    placeholder="Nhập số điện thoại..."
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium mb-1">Session ID</label>
+                  <input 
+                    value={form.sessionId} 
+                    onChange={(e)=>setForm({...form, sessionId: e.target.value})} 
+                    className="w-full border rounded-lg px-3 py-2" 
+                    placeholder="Nhập session ID..."
                   />
                 </div>
                 <div>
@@ -485,6 +558,183 @@ export default function Sales() {
                     placeholder="Nhập mã OTP..."
                   />
                 </div>
+              </div>
+
+              {/* Buy Products */}
+              <div className="border rounded-lg p-4 bg-gray-50">
+                <div className="flex items-center justify-between mb-3">
+                  <label className="block text-sm font-medium">Sản phẩm mua ({form.buyProducts.length})</label>
+                  <button type="button" onClick={addProduct} className="text-sm bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700">
+                    <Plus className="w-4 h-4 inline mr-1" />
+                    Thêm sản phẩm
+                  </button>
+                </div>
+                {form.buyProducts.map((product, index) => (
+                  <div key={index} className="grid grid-cols-12 gap-2 mb-2 bg-white p-2 rounded">
+                    <input 
+                      placeholder="ID sản phẩm"
+                      value={product.id || ''} 
+                      onChange={(e) => updateProduct(index, 'id', e.target.value)}
+                      className="col-span-2 border rounded px-2 py-1 text-sm"
+                    />
+                    <input 
+                      placeholder="Tên sản phẩm"
+                      value={product.name || ''} 
+                      onChange={(e) => updateProduct(index, 'name', e.target.value)}
+                      className="col-span-3 border rounded px-2 py-1 text-sm"
+                    />
+                    <input 
+                      type="number"
+                      placeholder="SL"
+                      value={product.qty || 0} 
+                      onChange={(e) => updateProduct(index, 'qty', Number(e.target.value))}
+                      className="col-span-2 border rounded px-2 py-1 text-sm"
+                    />
+                    <input 
+                      type="number"
+                      placeholder="Tiền"
+                      value={product.moneyAmount || 0} 
+                      onChange={(e) => updateProduct(index, 'moneyAmount', Number(e.target.value))}
+                      className="col-span-2 border rounded px-2 py-1 text-sm"
+                    />
+                    <input 
+                      placeholder="Đơn vị"
+                      value={product.unit || ''} 
+                      onChange={(e) => updateProduct(index, 'unit', e.target.value)}
+                      className="col-span-2 border rounded px-2 py-1 text-sm"
+                    />
+                    <button type="button" onClick={() => removeProduct(index)} className="col-span-1 text-red-600 hover:bg-red-50 rounded">
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                ))}
+                {form.buyProducts.length === 0 && (
+                  <p className="text-sm text-gray-500 text-center py-2">Chưa có sản phẩm nào</p>
+                )}
+                <div className="mt-2 text-right">
+                  <span className="text-sm font-medium">Tổng: {totalQuantity} sản phẩm - {totalAmount.toLocaleString('vi-VN')}đ</span>
+                </div>
+              </div>
+
+              {/* Get Premiums */}
+              <div className="border rounded-lg p-4 bg-gray-50">
+                <div className="flex items-center justify-between mb-3">
+                  <label className="block text-sm font-medium">Quà tặng/Khuyến mãi ({form.getPremiums.length})</label>
+                  <button type="button" onClick={addPremium} className="text-sm bg-green-600 text-white px-3 py-1 rounded hover:bg-green-700">
+                    <Plus className="w-4 h-4 inline mr-1" />
+                    Thêm quà tặng
+                  </button>
+                </div>
+                {form.getPremiums.map((premium, index) => (
+                  <div key={index} className="grid grid-cols-12 gap-2 mb-2 bg-white p-2 rounded">
+                    <input 
+                      placeholder="ID"
+                      value={premium.id || ''} 
+                      onChange={(e) => updatePremium(index, 'id', e.target.value)}
+                      className="col-span-2 border rounded px-2 py-1 text-sm"
+                    />
+                    <input 
+                      placeholder="Tên quà tặng"
+                      value={premium.name || ''} 
+                      onChange={(e) => updatePremium(index, 'name', e.target.value)}
+                      className="col-span-2 border rounded px-2 py-1 text-sm"
+                    />
+                    <input 
+                      type="number"
+                      placeholder="SL"
+                      value={premium.qty || 0} 
+                      onChange={(e) => updatePremium(index, 'qty', Number(e.target.value))}
+                      className="col-span-1 border rounded px-2 py-1 text-sm"
+                    />
+                    <input 
+                      type="number"
+                      placeholder="Giá trị"
+                      value={premium.moneyAmount || 0} 
+                      onChange={(e) => updatePremium(index, 'moneyAmount', Number(e.target.value))}
+                      className="col-span-2 border rounded px-2 py-1 text-sm"
+                    />
+                    <input 
+                      placeholder="Scheme ID"
+                      value={premium.schemeId || ''} 
+                      onChange={(e) => updatePremium(index, 'schemeId', e.target.value)}
+                      className="col-span-2 border rounded px-2 py-1 text-sm"
+                    />
+                    <input 
+                      placeholder="Đơn vị"
+                      value={premium.unit || ''} 
+                      onChange={(e) => updatePremium(index, 'unit', e.target.value)}
+                      className="col-span-2 border rounded px-2 py-1 text-sm"
+                    />
+                    <button type="button" onClick={() => removePremium(index)} className="col-span-1 text-red-600 hover:bg-red-50 rounded">
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                ))}
+                {form.getPremiums.length === 0 && (
+                  <p className="text-sm text-gray-500 text-center py-2">Chưa có quà tặng nào</p>
+                )}
+              </div>
+
+              {/* Bill Photos */}
+              <div className="border rounded-lg p-4 bg-gray-50">
+                <label className="block text-sm font-medium mb-2">Hình ảnh hóa đơn</label>
+                <div className="flex flex-wrap gap-2 mb-2">
+                  {form.billPhotos.map((url, index) => (
+                    <div key={index} className="relative group">
+                      <img src={url} alt={`Bill ${index + 1}`} className="w-20 h-20 object-cover rounded border" />
+                      <button
+                        type="button"
+                        onClick={() => removePhoto(index, 'bill')}
+                        className="absolute -top-2 -right-2 bg-red-600 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                <label className="cursor-pointer inline-flex items-center gap-2 px-3 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">
+                  <Upload className="w-4 h-4" />
+                  <span>{uploadingPhotos ? 'Đang tải...' : 'Tải ảnh hóa đơn'}</span>
+                  <input 
+                    type="file" 
+                    multiple 
+                    accept="image/*"
+                    onChange={(e) => handlePhotoUpload(e, 'bill')}
+                    className="hidden"
+                    disabled={uploadingPhotos}
+                  />
+                </label>
+              </div>
+
+              {/* Photos */}
+              <div className="border rounded-lg p-4 bg-gray-50">
+                <label className="block text-sm font-medium mb-2">Hình ảnh khác</label>
+                <div className="flex flex-wrap gap-2 mb-2">
+                  {form.photos.map((url, index) => (
+                    <div key={index} className="relative group">
+                      <img src={url} alt={`Photo ${index + 1}`} className="w-20 h-20 object-cover rounded border" />
+                      <button
+                        type="button"
+                        onClick={() => removePhoto(index, 'photo')}
+                        className="absolute -top-2 -right-2 bg-red-600 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                <label className="cursor-pointer inline-flex items-center gap-2 px-3 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">
+                  <Upload className="w-4 h-4" />
+                  <span>{uploadingPhotos ? 'Đang tải...' : 'Tải ảnh'}</span>
+                  <input 
+                    type="file" 
+                    multiple 
+                    accept="image/*"
+                    onChange={(e) => handlePhotoUpload(e, 'photo')}
+                    className="hidden"
+                    disabled={uploadingPhotos}
+                  />
+                </label>
               </div>
 
               <div>
@@ -558,12 +808,69 @@ export default function Sales() {
                 <label className="text-sm font-medium text-gray-600">Ghi chú:</label>
                 <p className="text-sm">{showDetails.notes || '-'}</p>
               </div>
+
+              {/* Buy Products */}
+              {showDetails.buyProducts && showDetails.buyProducts.length > 0 && (
+                <div>
+                  <label className="text-sm font-medium text-gray-600 mb-2 block">Sản phẩm mua ({showDetails.buyProducts.length}):</label>
+                  <div className="border rounded-lg overflow-hidden">
+                    <table className="w-full text-sm">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-3 py-2 text-left">Tên</th>
+                          <th className="px-3 py-2 text-center">SL</th>
+                          <th className="px-3 py-2 text-right">Tiền</th>
+                          <th className="px-3 py-2 text-center">Đơn vị</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {showDetails.buyProducts.map((product, index) => (
+                          <tr key={index} className="border-t">
+                            <td className="px-3 py-2">{product.name}</td>
+                            <td className="px-3 py-2 text-center">{product.qty}</td>
+                            <td className="px-3 py-2 text-right">{(product.moneyAmount || 0).toLocaleString('vi-VN')}đ</td>
+                            <td className="px-3 py-2 text-center">{product.unit}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* Get Premiums */}
+              {showDetails.getPremiums && showDetails.getPremiums.length > 0 && (
+                <div>
+                  <label className="text-sm font-medium text-gray-600 mb-2 block">Quà tặng/Khuyến mãi ({showDetails.getPremiums.length}):</label>
+                  <div className="border rounded-lg overflow-hidden">
+                    <table className="w-full text-sm">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-3 py-2 text-left">Tên</th>
+                          <th className="px-3 py-2 text-center">SL</th>
+                          <th className="px-3 py-2 text-left">Scheme ID</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {showDetails.getPremiums.map((premium, index) => (
+                          <tr key={index} className="border-t">
+                            <td className="px-3 py-2">{premium.name}</td>
+                            <td className="px-3 py-2 text-center">{premium.qty}</td>
+                            <td className="px-3 py-2">{premium.schemeId || '-'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
               
               <div>
                 <label className="text-sm font-medium text-gray-600">Tổng tiền:</label>
                 <p className="text-lg font-semibold text-green-600">
                   {calculateTotalAmount(showDetails.buyProducts).toLocaleString('vi-VN')}đ
                 </p>
+                <p className="text-sm text-gray-500">Tổng số lượng: {calculateTotalQuantity(showDetails.buyProducts)}</p>
               </div>
               
               <div>

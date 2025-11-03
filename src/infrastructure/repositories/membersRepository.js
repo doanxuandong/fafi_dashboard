@@ -1,4 +1,4 @@
-import { collection, getDocs, getDoc, setDoc, doc, deleteDoc, query, where, serverTimestamp } from 'firebase/firestore';
+import { collection, getDocs, getDoc, setDoc, updateDoc, doc, deleteDoc, query, where, serverTimestamp } from 'firebase/firestore';
 import { db } from '../services/firebase';
 
 /**
@@ -37,6 +37,18 @@ export async function addUserToOrg(userId, orgId, role, policies = [], createdBy
   };
   
   await setDoc(memberRef, memberData);
+  
+  // Sync to users collection
+  const userRef = doc(db, 'users', userId);
+  const userSnap = await getDoc(userRef);
+  if (userSnap.exists()) {
+    const userData = userSnap.data();
+    const orgIds = userData.orgIds || [];
+    if (!orgIds.includes(orgId)) {
+      await updateDoc(userRef, { orgIds: [...orgIds, orgId] });
+    }
+  }
+  
   return { id: memberId, ...memberData };
 }
 
@@ -46,6 +58,15 @@ export async function removeUserFromOrg(userId, orgId) {
   const memberId = `${userId}_${orgId}`;
   const memberRef = doc(orgsMembersRef, memberId);
   await deleteDoc(memberRef);
+  
+  // Sync to users collection
+  const userRef = doc(db, 'users', userId);
+  const userSnap = await getDoc(userRef);
+  if (userSnap.exists()) {
+    const userData = userSnap.data();
+    const orgIds = (userData.orgIds || []).filter(id => id !== orgId);
+    await updateDoc(userRef, { orgIds });
+  }
 }
 
 /**
@@ -109,6 +130,18 @@ export async function addUserToProject(userId, projectId, orgId, role, policies 
   };
   
   await setDoc(memberRef, memberData);
+  
+  // Sync to users collection
+  const userRef = doc(db, 'users', userId);
+  const userSnap = await getDoc(userRef);
+  if (userSnap.exists()) {
+    const userData = userSnap.data();
+    const projectIds = userData.projectIds || [];
+    if (!projectIds.includes(projectId)) {
+      await updateDoc(userRef, { projectIds: [...projectIds, projectId] });
+    }
+  }
+  
   return { id: memberId, ...memberData };
 }
 
@@ -118,6 +151,15 @@ export async function removeUserFromProject(userId, projectId) {
   const memberId = `${userId}_${projectId}`;
   const memberRef = doc(projectsMembersRef, memberId);
   await deleteDoc(memberRef);
+  
+  // Sync to users collection
+  const userRef = doc(db, 'users', userId);
+  const userSnap = await getDoc(userRef);
+  if (userSnap.exists()) {
+    const userData = userSnap.data();
+    const projectIds = (userData.projectIds || []).filter(id => id !== projectId);
+    await updateDoc(userRef, { projectIds });
+  }
 }
 
 // Batch add users to org

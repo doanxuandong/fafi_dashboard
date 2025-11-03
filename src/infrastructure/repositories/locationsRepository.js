@@ -1,5 +1,6 @@
 import { collection, getDocs, setDoc, updateDoc, deleteDoc, doc, serverTimestamp, query, orderBy, where } from 'firebase/firestore';
 import { db } from '../services/firebase';
+import { createProjectLocation, deleteProjectLocation, projectLocationExists } from './projectsLocationsRepository';
 
 const COLLECTION = 'locations';
 
@@ -88,6 +89,25 @@ export async function createLocation(data, user) {
   };
   
   await setDoc(docRef, payload);
+  
+  // Create corresponding entry in projects_locations if projectId exists
+  if (data.projectId && data.orgId) {
+    try {
+      const exists = await projectLocationExists(data.projectId, id);
+      if (!exists) {
+        await createProjectLocation({
+          projectId: data.projectId,
+          locationId: id,
+          orgId: data.orgId,
+          locationName: data.name
+        }, user);
+      }
+    } catch (error) {
+      console.error('Error creating project-location relationship:', error);
+      // Don't fail the location creation if this fails
+    }
+  }
+  
   return { id, ...payload };
 }
 
@@ -107,9 +127,19 @@ export async function updateLocation(id, data, user) {
   return { id, ...payload };
 }
 
-export async function deleteLocation(id) {
+export async function deleteLocation(id, projectId = null) {
   const ref = doc(db, COLLECTION, id);
   await deleteDoc(ref);
+  
+  // Delete corresponding entries in projects_locations if projectId is provided
+  if (projectId) {
+    try {
+      await deleteProjectLocation(projectId, id);
+    } catch (error) {
+      console.error('Error deleting project-location relationship:', error);
+      // Don't fail the location deletion if this fails
+    }
+  }
 }
 
 export function generateKeywords(name = '', code = '') {

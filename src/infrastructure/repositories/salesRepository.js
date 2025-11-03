@@ -16,26 +16,30 @@ import { db } from '../services/firebase';
 const COLLECTION = 'sales';
 
 // Helper function to generate keywords for search
-function generateKeywords(text) {
-  if (!text) return [];
-  const words = text.toLowerCase().split(/\s+/);
+function generateKeywords(buyerName, buyerPhone, notes, otpCode) {
   const keywords = [];
+  const texts = [buyerName, buyerPhone, notes, otpCode].filter(Boolean);
   
-  // Add full text
-  keywords.push(text.toLowerCase());
-  
-  // Add individual words
-  words.forEach(word => {
-    if (word.length > 0) {
-      keywords.push(word);
-    }
-  });
-  
-  // Add partial words (for better search)
-  words.forEach(word => {
-    for (let i = 1; i < word.length; i++) {
-      keywords.push(word.substring(0, i));
-    }
+  texts.forEach(text => {
+    if (!text) return;
+    const words = text.toLowerCase().split(/\s+/);
+    
+    // Add full text
+    keywords.push(text.toLowerCase());
+    
+    // Add individual words
+    words.forEach(word => {
+      if (word.length > 0) {
+        keywords.push(word);
+      }
+    });
+    
+    // Add partial words (for better search)
+    words.forEach(word => {
+      for (let i = 1; i < word.length; i++) {
+        keywords.push(word.substring(0, i));
+      }
+    });
   });
   
   return [...new Set(keywords)]; // Remove duplicates
@@ -81,19 +85,35 @@ export async function listSalesBySession(sessionId) {
 }
 
 // Create new sale
-export async function createSale(data, user) {
+export async function createSale(data, user, userName) {
   const colRef = collection(db, COLLECTION);
+  
+  // Calculate totals
+  const totalAmount = calculateTotalAmount(data.buyProducts);
+  const totalQuantity = calculateTotalQuantity(data.buyProducts);
+  
   const payload = {
-    ...data,
-    createdAt: serverTimestamp(),
-    createdBy: user?.uid || 'system',
-    keywords: generateKeywords(data.notes || ''),
-    // Ensure arrays are properly formatted
+    id: doc(colRef).id,
+    projectId: data.projectId || '',
+    buyerId: data.buyerId || null,
+    otpCode: data.otpCode || null,
     buyProducts: data.buyProducts || [],
     getPremiums: data.getPremiums || [],
-    billPhotos: data.billPhotos || [],
+    totalAmount,
+    totalQuantity,
     photos: data.photos || [],
+    billPhotos: data.billPhotos || [],
+    notes: data.notes || null,
+    locationId: data.locationId || null,
+    locationName: data.locationName || null,
+    sessionId: data.sessionId || null,
+    keywords: generateKeywords(data.buyerName, data.buyerPhone, data.notes, data.otpCode),
+    createdAt: serverTimestamp(),
+    createdBy: user?.uid || 'system',
+    createdByName: userName || user?.displayName || null,
+    updatedAt: null,
   };
+  
   const docRef = await addDoc(colRef, payload);
   return { id: docRef.id, ...payload };
 }
@@ -101,17 +121,30 @@ export async function createSale(data, user) {
 // Update sale
 export async function updateSale(id, data, user) {
   const ref = doc(db, COLLECTION, id);
+  
+  // Calculate totals
+  const totalAmount = calculateTotalAmount(data.buyProducts);
+  const totalQuantity = calculateTotalQuantity(data.buyProducts);
+  
   const payload = {
-    ...data,
+    projectId: data.projectId,
+    buyerId: data.buyerId || null,
+    otpCode: data.otpCode || null,
+    buyProducts: data.buyProducts || [],
+    getPremiums: data.getPremiums || [],
+    totalAmount,
+    totalQuantity,
+    photos: data.photos || [],
+    billPhotos: data.billPhotos || [],
+    notes: data.notes || null,
+    locationId: data.locationId,
+    locationName: data.locationName || null,
+    sessionId: data.sessionId || null,
+    keywords: generateKeywords(data.buyerName, data.buyerPhone, data.notes, data.otpCode),
     updatedAt: serverTimestamp(),
     updatedBy: user?.uid || 'system',
-    ...(data.notes ? { keywords: generateKeywords(data.notes) } : {}),
-    // Ensure arrays are properly formatted
-    ...(data.buyProducts ? { buyProducts: data.buyProducts } : {}),
-    ...(data.getPremiums ? { getPremiums: data.getPremiums } : {}),
-    ...(data.billPhotos ? { billPhotos: data.billPhotos } : {}),
-    ...(data.photos ? { photos: data.photos } : {}),
   };
+  
   await updateDoc(ref, payload);
   return { id, ...payload };
 }
@@ -135,9 +168,7 @@ export async function getSaleById(id) {
 export function calculateTotalAmount(buyProducts) {
   if (!buyProducts || !Array.isArray(buyProducts)) return 0;
   return buyProducts.reduce((total, product) => {
-    const quantity = product.quantity || 0;
-    const price = product.price || 0;
-    return total + (quantity * price);
+    return total + (product.moneyAmount || 0);
   }, 0);
 }
 
@@ -145,6 +176,6 @@ export function calculateTotalAmount(buyProducts) {
 export function calculateTotalQuantity(buyProducts) {
   if (!buyProducts || !Array.isArray(buyProducts)) return 0;
   return buyProducts.reduce((total, product) => {
-    return total + (product.quantity || 0);
+    return total + (product.qty || 0);
   }, 0);
 }

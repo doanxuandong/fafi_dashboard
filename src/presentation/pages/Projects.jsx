@@ -3,8 +3,10 @@ import { listProjects, createProject, updateProject, deleteProject } from '../..
 import { listOrgs, createOrg, updateOrg, deleteOrg, uploadOrgPhoto } from '../../infrastructure/repositories/orgsRepository';
 import { getProjectMembers, getOrgMembers, addUserToOrg, addUserToProject, getUsersByIds, getUserOrgs, getUserProjects } from '../../infrastructure/repositories/membersRepository';
 import { listUsers } from '../../infrastructure/repositories/usersRepository';
+import { listLocations } from '../../infrastructure/repositories/locationsRepository';
+import { listProjectsLocations, createProjectLocation, deleteProjectLocation, getLocationsByProject } from '../../infrastructure/repositories/projectsLocationsRepository';
 import { useAuth } from '../contexts/AuthContext';
-import { Plus, Pencil, Trash2, Search, Building, BarChart3, Package, Calendar, Users, UserPlus, Image as ImageIcon, Upload } from 'lucide-react';
+import { Plus, Pencil, Trash2, Search, Building, BarChart3, Package, Calendar, Users, UserPlus, Image as ImageIcon, Upload, MapPinned, MapPin, X } from 'lucide-react';
 import { Pagination } from 'antd';
 
 const defaultProjectForm = { name: '', description: '', orgId: '', tags: [] };
@@ -16,8 +18,10 @@ export default function Projects() {
   // Data states
   const [items, setItems] = useState([]); // projects
   const [orgs, setOrgs] = useState([]);
+  const [locations, setLocations] = useState([]);
   const [projectMembers, setProjectMembers] = useState({});
   const [orgMembers, setOrgMembers] = useState({});
+  const [projectLocations, setProjectLocations] = useState({}); // {projectId: [locationId1, locationId2]}
   const [allUsers, setAllUsers] = useState([]);
   
   // UI states
@@ -26,6 +30,10 @@ export default function Projects() {
   const [search, setSearch] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage] = useState(8);
+  
+  // Assignment states for project-location
+  const [showAssignLocationModal, setShowAssignLocationModal] = useState(false);
+  const [selectedProjectForLocation, setSelectedProjectForLocation] = useState(null);
   
   // Project form states
   const [showForm, setShowForm] = useState(false);
@@ -94,13 +102,15 @@ export default function Projects() {
 
   const load = async () => {
     setLoading(true);
-    const [data, orgList, usersList] = await Promise.all([
+    const [data, orgList, usersList, locationsList] = await Promise.all([
       listProjects({ accessibleProjectIds: accessibleProjects }),
       listOrgs(),
-      listUsers()
+      listUsers(),
+      listLocations({}) // Load ALL locations, not filtered by accessible projects
     ]);
     setItems(data);
     setAllUsers(usersList);
+    setLocations(locationsList);
     
     // Non-root: limit orgs to those that have at least one accessible project
     if (accessibleProjects === '*' ) {
@@ -135,6 +145,19 @@ export default function Projects() {
       }
     }
     setOrgMembers(orgMembersMap);
+    
+    // Load project-location relationships
+    const projectLocationsMap = {};
+    for (const project of data) {
+      try {
+        const locs = await getLocationsByProject(project.id);
+        projectLocationsMap[project.id] = locs.map(pl => pl.locationId);
+      } catch (error) {
+        console.error(`Error loading locations for project ${project.id}:`, error);
+        projectLocationsMap[project.id] = [];
+      }
+    }
+    setProjectLocations(projectLocationsMap);
     
     setLoading(false);
   };
@@ -307,6 +330,16 @@ export default function Projects() {
               }`}
             >
               Dự án
+            </button>
+            <button
+              onClick={() => setActiveTab('assignments')}
+              className={`py-4 px-1 border-b-2 font-medium text-sm ${
+                activeTab === 'assignments'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              Phân công địa điểm
             </button>
           </nav>
         </div>
@@ -508,7 +541,70 @@ export default function Projects() {
             </>
           )}
 
-          {/* Add other tabs here later */}
+          {/* Tab: Phân công địa điểm */}
+          {activeTab === 'assignments' && (
+            <>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-medium text-gray-900">Phân công địa điểm cho dự án</h3>
+              </div>
+
+              {loading ? (
+                <div className="text-center py-8 text-gray-500">Đang tải...</div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="min-w-full divide-y divide-gray-200">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Tên dự án</th>
+                        <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Công ty</th>
+                        <th className="text-center px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Địa điểm</th>
+                        <th className="w-24 px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider text-right">Thao tác</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {items.map((project) => (
+                        <tr key={project.id} className="border-t hover:bg-gray-50">
+                          <td className="px-6 py-4 font-medium">{project.name}</td>
+                          <td className="px-6 py-4">{orgs.find(o => o.id === project.orgId)?.name || '-'}</td>
+                          <td className="px-6 py-4 text-center">
+                            <button
+                              onClick={() => {
+                                setSelectedProjectForLocation(project);
+                                setShowAssignLocationModal(true);
+                              }}
+                              className="inline-flex items-center gap-1 text-gray-700 hover:text-blue-600 transition-colors cursor-pointer"
+                            >
+                              <MapPin className="w-4 h-4" />
+                              <span className="font-medium">{projectLocations[project.id]?.length || 0} địa điểm</span>
+                            </button>
+                          </td>
+                          <td className="px-6 py-4 text-right">
+                            <div className="flex items-center gap-2 justify-end">
+                              <button 
+                                onClick={() => {
+                                  setSelectedProjectForLocation(project);
+                                  setShowAssignLocationModal(true);
+                                }}
+                                className="p-2 hover:bg-gray-100 rounded"
+                                title="Phân công địa điểm"
+                              >
+                                <MapPinned className="w-4 h-4 text-blue-600" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                      {items.length === 0 && (
+                        <tr>
+                          <td className="px-6 py-6 text-center text-gray-500" colSpan="4">Không có dự án nào</td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </>
+          )}
         </div>
 
         {/* Pagination for Projects tab */}
@@ -889,6 +985,132 @@ export default function Projects() {
                   setShowMembersModal(false);
                   setSelectedOrgMembers([]);
                   setSelectedProjectMembers([]);
+                }}
+                className="px-4 py-2 rounded bg-gray-200 text-gray-700 hover:bg-gray-300"
+              >
+                Đóng
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Phân công địa điểm */}
+      {showAssignLocationModal && selectedProjectForLocation && (
+        <div 
+          className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-[9999]"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              setShowAssignLocationModal(false);
+              setSelectedProjectForLocation(null);
+            }
+          }}
+        >
+          <div className="bg-white rounded-lg w-full max-w-4xl p-6 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold">
+                Phân công địa điểm cho: {selectedProjectForLocation.name}
+              </h3>
+              <button
+                onClick={() => {
+                  setShowAssignLocationModal(false);
+                  setSelectedProjectForLocation(null);
+                }}
+                className="p-2 hover:bg-gray-100 rounded"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            <div className="space-y-4">
+              {/* List of assigned locations */}
+              <div>
+                <h4 className="text-sm font-medium text-gray-700 mb-3">Địa điểm đã phân công ({projectLocations[selectedProjectForLocation.id]?.length || 0})</h4>
+                {projectLocations[selectedProjectForLocation.id]?.length > 0 ? (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                    {projectLocations[selectedProjectForLocation.id].map(locationId => {
+                      const location = locations.find(l => l.id === locationId);
+                      if (!location) return null;
+                      
+                      return (
+                        <div key={locationId} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                          <div className="flex items-center gap-3">
+                            <MapPin className="w-4 h-4 text-gray-400" />
+                            <div>
+                              <div className="font-medium text-sm">{location.name}</div>
+                              <div className="text-xs text-gray-500">{location.code}</div>
+                            </div>
+                          </div>
+                          <button
+                            onClick={async () => {
+                              if (confirm('Bỏ phân công địa điểm này?')) {
+                                try {
+                                  await deleteProjectLocation(selectedProjectForLocation.id, locationId);
+                                  await load();
+                                } catch (error) {
+                                  alert('Lỗi bỏ phân công: ' + error.message);
+                                }
+                              }
+                            }}
+                            className="p-1 text-red-600 hover:bg-red-50 rounded"
+                            title="Bỏ phân công"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <p className="text-center py-4 text-gray-500 text-sm bg-gray-50 rounded-lg">Chưa có địa điểm nào được phân công</p>
+                )}
+              </div>
+              
+              {/* Add locations section */}
+              <div className="border-t pt-4">
+                <h4 className="text-sm font-medium text-gray-700 mb-3">Thêm địa điểm</h4>
+                <div className="space-y-2 max-h-64 overflow-y-auto">
+                  {locations.filter(loc => !projectLocations[selectedProjectForLocation.id]?.includes(loc.id)).map(location => (
+                    <div key={location.id} className="flex items-center justify-between p-3 bg-white border rounded-lg hover:bg-gray-50">
+                      <div className="flex items-center gap-3">
+                        <MapPin className="w-4 h-4 text-gray-400" />
+                        <div>
+                          <div className="font-medium text-sm">{location.name}</div>
+                          <div className="text-xs text-gray-500">{location.code} • {location.locationMark?.formattedAddress || location.locationMark?.address || '-'}</div>
+                        </div>
+                      </div>
+                      <button
+                        onClick={async () => {
+                          try {
+                            await createProjectLocation({
+                              projectId: selectedProjectForLocation.id,
+                              locationId: location.id,
+                              orgId: selectedProjectForLocation.orgId,
+                              locationName: location.name
+                            }, currentUser);
+                            await load();
+                          } catch (error) {
+                            alert('Lỗi phân công địa điểm: ' + error.message);
+                          }
+                        }}
+                        className="px-3 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700"
+                      >
+                        Thêm
+                      </button>
+                    </div>
+                  ))}
+                  {locations.filter(loc => !projectLocations[selectedProjectForLocation.id]?.includes(loc.id)).length === 0 && (
+                    <p className="text-center py-4 text-gray-500 text-sm">Tất cả địa điểm đã được phân công</p>
+                  )}
+                </div>
+              </div>
+            </div>
+            
+            <div className="flex justify-end gap-2 mt-6 pt-4 border-t">
+              <button
+                onClick={() => {
+                  setShowAssignLocationModal(false);
+                  setSelectedProjectForLocation(null);
                 }}
                 className="px-4 py-2 rounded bg-gray-200 text-gray-700 hover:bg-gray-300"
               >

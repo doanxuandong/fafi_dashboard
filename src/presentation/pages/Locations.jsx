@@ -441,10 +441,10 @@ export default function Locations() {
     setShowForm(true);
   };
 
-  const onDelete = async (id) => {
+  const onDelete = async (item) => {
     if (!confirm('Xóa địa điểm này?')) return;
     try {
-      await deleteLocation(id);
+      await deleteLocation(item.id, item.projectId);
       await load();
     } catch (error) {
       console.error('Error deleting location:', error);
@@ -686,7 +686,7 @@ export default function Locations() {
                           <button onClick={() => onEdit(item)} className="p-2 hover:bg-gray-100 rounded">
                             <Pencil className="w-4 h-4" />
                           </button>
-                          <button onClick={() => onDelete(item.id)} className="p-2 hover:bg-gray-100 rounded text-red-600">
+                          <button onClick={() => onDelete(item)} className="p-2 hover:bg-gray-100 rounded text-red-600">
                             <Trash2 className="w-4 h-4" />
                           </button>
                         </div>
