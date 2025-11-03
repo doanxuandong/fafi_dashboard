@@ -17,6 +17,7 @@ import {
   Scale
 } from 'lucide-react';
 import clsx from 'clsx';
+import { useAuth } from '../../contexts/AuthContext';
 
 const navigation = [
   { name: 'Dashboard', href: '/', icon: Home },
@@ -35,8 +36,21 @@ const navigation = [
   { name: 'Cài đặt', href: '/settings', icon: Settings },
 ];
 
+// Admin can only see these 4 items
+const adminNavigation = [
+  { name: 'Dashboard', href: '/', icon: Home },
+  { name: 'Tổ chức & Dự án', href: '/projects', icon: Folder },
+  { name: 'Locations', href: '/locations', icon: Building2 },
+  { name: 'Lịch làm việc', href: '/schedules', icon: Calendar },
+];
+
 export default function Sidebar({ isOpen, onClose }) {
   const location = useLocation();
+  const { userProfile } = useAuth();
+  const userRole = userProfile?.role;
+  
+  // Filter navigation based on role
+  const visibleNavigation = userRole === 'root' ? navigation : adminNavigation;
 
   return (
     <>
@@ -56,7 +70,7 @@ export default function Sidebar({ isOpen, onClose }) {
         
         <nav className="mt-8 px-4">
           <ul className="space-y-2">
-            {navigation.map((item) => {
+            {visibleNavigation.map((item) => {
               const isActive = location.pathname === item.href;
               return (
                 <li key={item.name}>
