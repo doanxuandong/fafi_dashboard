@@ -29,6 +29,8 @@ import {
 import { listProjects } from '../../infrastructure/repositories/projectsRepository';
 import { listLocations } from '../../infrastructure/repositories/locationsRepository';
 import { useAuth } from '../contexts/AuthContext';
+import { toast } from '../components/common/Toaster';
+import { confirm } from '../components/common/ConfirmDialog';
 import { 
   Plus, 
   Pencil, 
@@ -336,13 +338,15 @@ export default function StockManagement() {
             </button>
             <button 
               onClick={async () => {
-                if (confirm('Xóa số dư này?')) {
+                const confirmed = await confirm('Xóa số dư này?');
+                if (confirmed) {
                   try {
                     await deleteStockBalance(balance.id);
                     await load();
+                    toast.success('Đã xóa số dư thành công!');
                   } catch (error) {
                     console.error('Error deleting balance:', error);
-                    alert('Có lỗi xảy ra khi xóa số dư');
+                    toast.error('Có lỗi xảy ra khi xóa số dư');
                   }
                 }
               }} 
@@ -707,13 +711,15 @@ export default function StockManagement() {
                           </button>
                           <button 
                             onClick={async () => {
-                              if (confirm('Xóa tài sản này?')) {
+                              const confirmed = await confirm('Xóa tài sản này?');
+                              if (confirmed) {
                                 try {
                                   await deleteStockAsset(asset.id);
                                   await load();
+                                  toast.success('Đã xóa tài sản thành công!');
                                 } catch (error) {
                                   console.error('Error deleting asset:', error);
-                                  alert('Có lỗi xảy ra khi xóa tài sản');
+                                  toast.error('Có lỗi xảy ra khi xóa tài sản');
                                 }
                               }
                             }} 
@@ -849,7 +855,7 @@ export default function StockManagement() {
                       <button 
                         onClick={() => {
                           // TODO: Implement edit transaction
-                          alert('Chức năng sửa giao dịch đang được phát triển');
+                          toast.info('Chức năng sửa giao dịch đang được phát triển');
                         }} 
                         className="p-2 hover:bg-gray-100 rounded"
                         title="Chỉnh sửa"
@@ -858,13 +864,15 @@ export default function StockManagement() {
                       </button>
                       <button 
                         onClick={async () => {
-                          if (confirm('Xóa giao dịch này?')) {
+                          const confirmed = await confirm('Xóa giao dịch này?');
+                          if (confirmed) {
                             try {
                               await deleteStockTransaction(transaction.id);
                               await load();
+                              toast.success('Đã xóa giao dịch thành công!');
                             } catch (error) {
                               console.error('Error deleting transaction:', error);
-                              alert('Có lỗi xảy ra khi xóa giao dịch');
+                              toast.error('Có lỗi xảy ra khi xóa giao dịch');
                             }
                           }
                         }} 
@@ -940,9 +948,10 @@ export default function StockManagement() {
                 setShowAssetForm(false);
                 setEditingAsset(null);
                 setAssetForm(defaultAssetForm);
+                toast.success(editingAsset ? 'Đã cập nhật tài sản thành công!' : 'Đã tạo tài sản thành công!');
               } catch (error) {
                 console.error('Error saving asset:', error);
-                alert('Có lỗi xảy ra khi lưu tài sản');
+                toast.error('Có lỗi xảy ra khi lưu tài sản');
               }
             }} className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1122,9 +1131,10 @@ export default function StockManagement() {
                 setShowBalanceForm(false);
                 setEditingBalance(null);
                 setBalanceForm(defaultBalanceForm);
+                toast.success(editingBalance ? 'Đã cập nhật số dư thành công!' : 'Đã tạo số dư thành công!');
               } catch (error) {
                 console.error('Error saving balance:', error);
-                alert('Có lỗi xảy ra khi lưu số dư');
+                toast.error('Có lỗi xảy ra khi lưu số dư');
               }
             }} className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

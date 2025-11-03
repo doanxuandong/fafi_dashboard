@@ -4,6 +4,8 @@ import { listAcls, createAclRule, updateAclRule, deleteAclRule } from '../../inf
 import { getProjectById, listProjects } from '../../infrastructure/repositories/projectsRepository';
 import { listOrgs } from '../../infrastructure/repositories/orgsRepository';
 import { useAuth } from '../contexts/AuthContext';
+import { toast } from '../components/common/Toaster';
+import { confirm } from '../components/common/ConfirmDialog';
 import { Pagination } from 'antd';
 
 export default function Permissions() {
@@ -148,11 +150,12 @@ export default function Permissions() {
 
     // Validate role belongs to supported enum (Mobile compatible)
     if (!ROLES.includes(payload.role)) {
-      alert('Role không hợp lệ. Vui lòng chọn vai trò hợp lệ.');
+      toast.error('Role không hợp lệ. Vui lòng chọn vai trò hợp lệ.');
       return;
     }
 
-    if (editing) {
+    const isUpdating = !!editing;
+    if (isUpdating) {
       await updateAclRule(editing.id, payload, currentUser);
     } else {
       await createAclRule(payload, currentUser);
@@ -160,12 +163,15 @@ export default function Permissions() {
     setEditing(null);
     setForm({ role: 'promoter', resource: 'project', permissionActions: [] });
     await fetchData();
+    toast.success(isUpdating ? 'Đã cập nhật quy tắc phân quyền thành công!' : 'Đã tạo quy tắc phân quyền thành công!');
   }
 
   async function handleDelete(rule) {
-    if (!window.confirm('Xóa rule này?')) return;
+    const confirmed = await confirm('Xóa rule này?');
+    if (!confirmed) return;
     await deleteAclRule(rule.id);
     await fetchData();
+    toast.success('Đã xóa quy tắc phân quyền thành công!');
   }
 
   const filtered = useMemo(() => {

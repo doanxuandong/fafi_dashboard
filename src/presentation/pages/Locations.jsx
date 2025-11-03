@@ -5,7 +5,9 @@ import { listProjects } from '../../infrastructure/repositories/projectsReposito
 import { listUsers } from '../../infrastructure/repositories/usersRepository';
 import { getLocationMembers, addUserToLocation, removeUserFromLocation, getUsersByIds } from '../../infrastructure/repositories/locationsMembersRepository';
 import { useAuth } from '../contexts/AuthContext';
-import { Plus, Pencil, Trash2, Search, MapPin, Building, Package, CheckCircle, AlertTriangle, XCircle, Users, UserPlus, MapPinned } from 'lucide-react';
+import { toast } from '../components/common/Toaster';
+import { confirm } from '../components/common/ConfirmDialog';
+import { Plus, Pencil, Trash2, Search, MapPin, Building, Package, CheckCircle, AlertTriangle, XCircle, Users, UserPlus, MapPinned, Check } from 'lucide-react';
 import { Pagination } from 'antd';
 
 const defaultForm = { 
@@ -33,7 +35,8 @@ const statusOptions = [
   { value: 'sitecheck', label: 'Chờ kiểm tra' },
   { value: 'accepted', label: 'Cho phép' },
   { value: 'denied', label: 'Từ chối' },
-  { value: 'closed', label: 'Đóng cửa' }
+  { value: 'closed', label: 'Đóng cửa' },
+  { value: 'confirm', label: 'Xác nhận' }
 ];
 
 const levelOptions = [
@@ -157,7 +160,7 @@ export default function Locations() {
   // Handle assign user to locations
   const handleAssignUserToLocations = async (user, selectedLocationIds) => {
     if (!selectedLocationIds || selectedLocationIds.length === 0) {
-      alert('Vui lòng chọn ít nhất một địa điểm');
+      toast.warning('Vui lòng chọn ít nhất một địa điểm');
       return;
     }
 
@@ -179,27 +182,28 @@ export default function Locations() {
         );
       }
 
-      alert('Phân công địa điểm thành công!');
+      toast.success('Phân công địa điểm thành công!');
       setShowAssignModal(false);
       setSelectedUser(null);
       await loadUserLocationMemberships();
     } catch (error) {
       console.error('Error assigning locations:', error);
-      alert('Có lỗi xảy ra khi phân công địa điểm');
+      toast.error('Có lỗi xảy ra khi phân công địa điểm');
     }
   };
 
   // Handle remove user from location
   const handleRemoveUserFromLocation = async (userId, locationId, projectId) => {
-    if (!confirm('Bạn có chắc muốn xóa phân công này?')) return;
+    const confirmed = await confirm('Bạn có chắc muốn xóa phân công này?');
+    if (!confirmed) return;
 
     try {
       await removeUserFromLocation(userId, locationId, projectId);
-      alert('Đã xóa phân công địa điểm');
+      toast.success('Đã xóa phân công địa điểm');
       await loadUserLocationMemberships();
     } catch (error) {
       console.error('Error removing location assignment:', error);
-      alert('Có lỗi xảy ra khi xóa phân công');
+      toast.error('Có lỗi xảy ra khi xóa phân công');
     }
   };
 
@@ -402,7 +406,8 @@ export default function Locations() {
     if (!form.name?.trim() || !form.code?.trim()) return;
     
     try {
-      if (editing) {
+      const isUpdating = !!editing;
+      if (isUpdating) {
         await updateLocation(editing.id, form, currentUser);
       } else {
         await createLocation(form, currentUser);
@@ -411,8 +416,10 @@ export default function Locations() {
       setEditing(null);
       setForm(defaultForm);
       await load();
+      toast.success(isUpdating ? 'Đã cập nhật địa điểm thành công!' : 'Đã tạo địa điểm thành công!');
     } catch (error) {
       console.error('Error saving location:', error);
+      toast.error('Có lỗi xảy ra khi lưu địa điểm');
     }
   };
 
@@ -442,12 +449,26 @@ export default function Locations() {
   };
 
   const onDelete = async (item) => {
-    if (!confirm('Xóa địa điểm này?')) return;
+    const confirmed = await confirm('Xóa địa điểm này?');
+    if (!confirmed) return;
     try {
       await deleteLocation(item.id, item.projectId);
       await load();
+      toast.success('Đã xóa địa điểm thành công!');
     } catch (error) {
       console.error('Error deleting location:', error);
+      toast.error('Có lỗi xảy ra khi xóa địa điểm');
+    }
+  };
+
+  const onConfirm = async (item) => {
+    try {
+      await updateLocation(item.id, { ...item, status: 'confirm' }, currentUser);
+      await load();
+      toast.success('Đã cập nhật trạng thái thành công!');
+    } catch (error) {
+      console.error('Error confirming location:', error);
+      toast.error('Có lỗi xảy ra khi cập nhật trạng thái');
     }
   };
 
@@ -460,8 +481,10 @@ export default function Locations() {
       setForm({...form, orgId: newOrg.id});
       setShowOrgForm(false);
       setOrgForm({ name: '', description: '' });
+      toast.success('Đã tạo tổ chức mới thành công!');
     } catch (error) {
       console.error('Error creating org:', error);
+      toast.error('Có lỗi xảy ra khi tạo tổ chức');
     }
   };
 
@@ -471,6 +494,7 @@ export default function Locations() {
       case 'denied': return 'text-red-600 bg-red-100';
       case 'closed': return 'text-gray-600 bg-gray-100';
       case 'sitecheck': return 'text-yellow-600 bg-yellow-100';
+      case 'confirm': return 'text-blue-600 bg-blue-100';
       default: return 'text-gray-600 bg-gray-100';
     }
   };
@@ -664,7 +688,7 @@ export default function Locations() {
                       <td className="px-4 py-2 text-gray-600">{item.code}</td>
                       <td className="px-4 py-2">
                         <span className={`px-2 py-1 rounded-full text-xs ${getStatusColor(item.status)}`}>
-                          {item.status}
+                          {getStatusLabel(item.status)}
                         </span>
                       </td>
                       <td className="px-4 py-2">
@@ -683,6 +707,9 @@ export default function Locations() {
                       </td>
                       <td className="px-4 py-2">
                         <div className="flex items-center gap-2">
+                          <button onClick={() => onConfirm(item)} className="p-2 hover:bg-gray-100 rounded text-green-600" title="Xác nhận">
+                            <Check className="w-4 h-4" />
+                          </button>
                           <button onClick={() => onEdit(item)} className="p-2 hover:bg-gray-100 rounded">
                             <Pencil className="w-4 h-4" />
                           </button>
@@ -1066,6 +1093,7 @@ export default function Locations() {
         <AssignLocationsModal
           user={selectedUser}
           locations={items}
+          projects={projects}
           userLocationMemberships={userLocationMemberships[selectedUser.id] || []}
           onClose={() => {
             setShowAssignModal(false);
@@ -1079,8 +1107,11 @@ export default function Locations() {
 }
 
 // Component: AssignLocationsModal
-function AssignLocationsModal({ user, locations, userLocationMemberships, onClose, onAssign }) {
+function AssignLocationsModal({ user, locations, projects, userLocationMemberships, onClose, onAssign }) {
   const [selectedLocationIds, setSelectedLocationIds] = useState([]);
+  const [modalSearch, setModalSearch] = useState('');
+  const [filterProvince, setFilterProvince] = useState('');
+  const [filterDistrict, setFilterDistrict] = useState('');
 
   const handleToggleLocation = (locationId) => {
     setSelectedLocationIds(prev => {
@@ -1096,8 +1127,59 @@ function AssignLocationsModal({ user, locations, userLocationMemberships, onClos
     onAssign(user, selectedLocationIds);
   };
 
+  // Extract unique provinces and districts
+  const { provinces, districts } = useMemo(() => {
+    const provinceSet = new Set();
+    const districtSet = new Set();
+    
+    locations.forEach(loc => {
+      const province = loc.locationMark?.province;
+      const district = loc.locationMark?.district;
+      
+      // Only add if it's a string
+      if (province && typeof province === 'string') {
+        provinceSet.add(province);
+      }
+      if (district && typeof district === 'string') {
+        districtSet.add(district);
+      }
+    });
+    
+    return {
+      provinces: Array.from(provinceSet).sort(),
+      districts: Array.from(districtSet).sort()
+    };
+  }, [locations]);
+
+  // Filter locations by search, province, and district
+  const filteredLocations = useMemo(() => {
+    return locations.filter(loc => {
+      // Filter by search
+      if (modalSearch) {
+        const search = modalSearch.toLowerCase();
+        const matchesSearch = 
+          (loc.name || loc.locationName || '').toLowerCase().includes(search) ||
+          (loc.code || '').toLowerCase().includes(search) ||
+          (loc.locationMark?.formattedAddress || loc.locationMark?.address || '').toLowerCase().includes(search);
+        if (!matchesSearch) return false;
+      }
+      
+      // Filter by province
+      if (filterProvince) {
+        if (loc.locationMark?.province !== filterProvince) return false;
+      }
+      
+      // Filter by district
+      if (filterDistrict) {
+        if (loc.locationMark?.district !== filterDistrict) return false;
+      }
+      
+      return true;
+    });
+  }, [locations, modalSearch, filterProvince, filterDistrict]);
+
   // Group locations by project
-  const locationsByProject = locations.reduce((acc, loc) => {
+  const locationsByProject = filteredLocations.reduce((acc, loc) => {
     const projectId = loc.projectId || 'Không có dự án';
     if (!acc[projectId]) {
       acc[projectId] = [];
@@ -1126,6 +1208,44 @@ function AssignLocationsModal({ user, locations, userLocationMemberships, onClos
           <p className="text-sm text-gray-600 mt-1">
             Chọn các địa điểm mà nhân viên này sẽ phụ trách
           </p>
+          <div className="mt-3 space-y-3">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+                <input 
+                  type="text"
+                  placeholder="Tìm kiếm..." 
+                  value={modalSearch}
+                  onChange={(e) => setModalSearch(e.target.value)}
+                  className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+              </div>
+              <div>
+                <select
+                  value={filterProvince}
+                  onChange={(e) => setFilterProvince(e.target.value)}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                >
+                  <option value="">-- Tất cả tỉnh/thành --</option>
+                  {provinces.map(p => (
+                    <option key={p} value={p}>{p}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <select
+                  value={filterDistrict}
+                  onChange={(e) => setFilterDistrict(e.target.value)}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                >
+                  <option value="">-- Tất cả quận/huyện --</option>
+                  {districts.map(d => (
+                    <option key={d} value={d}>{d}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          </div>
         </div>
 
         <div className="p-6 overflow-y-auto flex-1">
@@ -1134,10 +1254,12 @@ function AssignLocationsModal({ user, locations, userLocationMemberships, onClos
               Không có địa điểm nào
             </div>
           ) : (
-            Object.entries(locationsByProject).map(([projectId, locs]) => (
+            Object.entries(locationsByProject).map(([projectId, locs]) => {
+              const project = projects.find(p => p.id === projectId);
+              return (
               <div key={projectId} className="mb-6">
                 <h4 className="font-medium text-sm text-gray-700 mb-2">
-                  Dự án: {projectId}
+                  Dự án: {project ? project.name : projectId}
                 </h4>
                 <div className="space-y-2">
                   {locs.map(loc => {
@@ -1174,7 +1296,8 @@ function AssignLocationsModal({ user, locations, userLocationMemberships, onClos
                   })}
                 </div>
               </div>
-            ))
+              );
+            })
           )}
         </div>
 

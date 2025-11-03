@@ -6,6 +6,8 @@ import { listUsers } from '../../infrastructure/repositories/usersRepository';
 import { listLocations } from '../../infrastructure/repositories/locationsRepository';
 import { listProjectsLocations, createProjectLocation, deleteProjectLocation, getLocationsByProject } from '../../infrastructure/repositories/projectsLocationsRepository';
 import { useAuth } from '../contexts/AuthContext';
+import { toast } from '../components/common/Toaster';
+import { confirm } from '../components/common/ConfirmDialog';
 import { Plus, Pencil, Trash2, Search, Building, BarChart3, Package, Calendar, Users, UserPlus, Image as ImageIcon, Upload, MapPinned, MapPin, X } from 'lucide-react';
 import { Pagination } from 'antd';
 
@@ -34,6 +36,9 @@ export default function Projects() {
   // Assignment states for project-location
   const [showAssignLocationModal, setShowAssignLocationModal] = useState(false);
   const [selectedProjectForLocation, setSelectedProjectForLocation] = useState(null);
+  const [locationModalSearch, setLocationModalSearch] = useState('');
+  const [locationModalProvince, setLocationModalProvince] = useState('');
+  const [locationModalDistrict, setLocationModalDistrict] = useState('');
   
   // Project form states
   const [showForm, setShowForm] = useState(false);
@@ -69,6 +74,30 @@ export default function Projects() {
     const s = search.toLowerCase();
     return orgs.filter(o => (o.keywords || []).some(k => k.includes(s)) || (o.name || '').toLowerCase().includes(s));
   }, [orgs, search]);
+
+  // Extract unique provinces and districts for location modal
+  const { provinces, districts } = useMemo(() => {
+    const provinceSet = new Set();
+    const districtSet = new Set();
+    
+    locations.forEach(loc => {
+      const province = loc.locationMark?.province;
+      const district = loc.locationMark?.district;
+      
+      // Only add if it's a string
+      if (province && typeof province === 'string') {
+        provinceSet.add(province);
+      }
+      if (district && typeof district === 'string') {
+        districtSet.add(district);
+      }
+    });
+    
+    return {
+      provinces: Array.from(provinceSet).sort(),
+      districts: Array.from(districtSet).sort()
+    };
+  }, [locations]);
 
   // Stats
   const totalProjects = items.length;
@@ -226,7 +255,7 @@ export default function Projects() {
       await load();
     } catch (error) {
       console.error('Error saving org:', error);
-      alert('Lỗi lưu tổ chức: ' + error.message);
+      toast.error('Lỗi lưu tổ chức: ' + error.message);
     } finally {
       setUploadingOrgPhoto(false);
     }
@@ -844,8 +873,9 @@ export default function Projects() {
                                 // Reload memberships to show updated data
                                 await loadUserMemberships();
                                 await load();
+                                toast.success('Đã thêm nhân sự thành công!');
                               } catch (error) {
-                                alert('Lỗi thêm nhân sự: ' + error.message);
+                                toast.error('Lỗi thêm nhân sự: ' + error.message);
                               }
                             }}
                             className="px-3 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700"
@@ -1003,6 +1033,9 @@ export default function Projects() {
             if (e.target === e.currentTarget) {
               setShowAssignLocationModal(false);
               setSelectedProjectForLocation(null);
+              setLocationModalSearch('');
+              setLocationModalProvince('');
+              setLocationModalDistrict('');
             }
           }}
         >
@@ -1015,6 +1048,9 @@ export default function Projects() {
                 onClick={() => {
                   setShowAssignLocationModal(false);
                   setSelectedProjectForLocation(null);
+                  setLocationModalSearch('');
+                  setLocationModalProvince('');
+                  setLocationModalDistrict('');
                 }}
                 className="p-2 hover:bg-gray-100 rounded"
               >
@@ -1043,12 +1079,14 @@ export default function Projects() {
                           </div>
                           <button
                             onClick={async () => {
-                              if (confirm('Bỏ phân công địa điểm này?')) {
+                              const confirmed = await confirm('Bỏ phân công địa điểm này?');
+                              if (confirmed) {
                                 try {
                                   await deleteProjectLocation(selectedProjectForLocation.id, locationId);
                                   await load();
+                                  toast.success('Đã bỏ phân công địa điểm thành công!');
                                 } catch (error) {
-                                  alert('Lỗi bỏ phân công: ' + error.message);
+                                  toast.error('Lỗi bỏ phân công: ' + error.message);
                                 }
                               }
                             }}
@@ -1069,8 +1107,71 @@ export default function Projects() {
               {/* Add locations section */}
               <div className="border-t pt-4">
                 <h4 className="text-sm font-medium text-gray-700 mb-3">Thêm địa điểm</h4>
+                <div className="mb-3 space-y-3">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <div className="relative">
+                      <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+                      <input 
+                        type="text"
+                        placeholder="Tìm kiếm..." 
+                        value={locationModalSearch}
+                        onChange={(e) => setLocationModalSearch(e.target.value)}
+                        className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      />
+                    </div>
+                    <div>
+                      <select
+                        value={locationModalProvince}
+                        onChange={(e) => setLocationModalProvince(e.target.value)}
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      >
+                        <option value="">-- Tất cả tỉnh/thành --</option>
+                        {provinces.map(p => (
+                          <option key={p} value={p}>{p}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <select
+                        value={locationModalDistrict}
+                        onChange={(e) => setLocationModalDistrict(e.target.value)}
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      >
+                        <option value="">-- Tất cả quận/huyện --</option>
+                        {districts.map(d => (
+                          <option key={d} value={d}>{d}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                </div>
                 <div className="space-y-2 max-h-64 overflow-y-auto">
-                  {locations.filter(loc => !projectLocations[selectedProjectForLocation.id]?.includes(loc.id)).map(location => (
+                  {locations
+                    .filter(loc => !projectLocations[selectedProjectForLocation.id]?.includes(loc.id))
+                    .filter(loc => {
+                      // Filter by search
+                      if (locationModalSearch) {
+                        const search = locationModalSearch.toLowerCase();
+                        const matchesSearch = 
+                          (loc.name || '').toLowerCase().includes(search) ||
+                          (loc.code || '').toLowerCase().includes(search) ||
+                          (loc.locationMark?.formattedAddress || loc.locationMark?.address || '').toLowerCase().includes(search);
+                        if (!matchesSearch) return false;
+                      }
+                      
+                      // Filter by province
+                      if (locationModalProvince) {
+                        if (loc.locationMark?.province !== locationModalProvince) return false;
+                      }
+                      
+                      // Filter by district
+                      if (locationModalDistrict) {
+                        if (loc.locationMark?.district !== locationModalDistrict) return false;
+                      }
+                      
+                      return true;
+                    })
+                    .map(location => (
                     <div key={location.id} className="flex items-center justify-between p-3 bg-white border rounded-lg hover:bg-gray-50">
                       <div className="flex items-center gap-3">
                         <MapPin className="w-4 h-4 text-gray-400" />
@@ -1089,8 +1190,12 @@ export default function Projects() {
                               locationName: location.name
                             }, currentUser);
                             await load();
+                            toast.success('Đã phân công địa điểm thành công!');
+                            setLocationModalSearch('');
+                            setLocationModalProvince('');
+                            setLocationModalDistrict('');
                           } catch (error) {
-                            alert('Lỗi phân công địa điểm: ' + error.message);
+                            toast.error('Lỗi phân công địa điểm: ' + error.message);
                           }
                         }}
                         className="px-3 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700"
@@ -1099,8 +1204,34 @@ export default function Projects() {
                       </button>
                     </div>
                   ))}
-                  {locations.filter(loc => !projectLocations[selectedProjectForLocation.id]?.includes(loc.id)).length === 0 && (
-                    <p className="text-center py-4 text-gray-500 text-sm">Tất cả địa điểm đã được phân công</p>
+                  {locations
+                    .filter(loc => !projectLocations[selectedProjectForLocation.id]?.includes(loc.id))
+                    .filter(loc => {
+                      // Filter by search
+                      if (locationModalSearch) {
+                        const search = locationModalSearch.toLowerCase();
+                        const matchesSearch = 
+                          (loc.name || '').toLowerCase().includes(search) ||
+                          (loc.code || '').toLowerCase().includes(search) ||
+                          (loc.locationMark?.formattedAddress || loc.locationMark?.address || '').toLowerCase().includes(search);
+                        if (!matchesSearch) return false;
+                      }
+                      
+                      // Filter by province
+                      if (locationModalProvince) {
+                        if (loc.locationMark?.province !== locationModalProvince) return false;
+                      }
+                      
+                      // Filter by district
+                      if (locationModalDistrict) {
+                        if (loc.locationMark?.district !== locationModalDistrict) return false;
+                      }
+                      
+                      return true;
+                    }).length === 0 && (
+                    <p className="text-center py-4 text-gray-500 text-sm">
+                      {locationModalSearch || locationModalProvince || locationModalDistrict ? 'Không tìm thấy địa điểm nào' : 'Tất cả địa điểm đã được phân công'}
+                    </p>
                   )}
                 </div>
               </div>
@@ -1111,6 +1242,9 @@ export default function Projects() {
                 onClick={() => {
                   setShowAssignLocationModal(false);
                   setSelectedProjectForLocation(null);
+                  setLocationModalSearch('');
+                  setLocationModalProvince('');
+                  setLocationModalDistrict('');
                 }}
                 className="px-4 py-2 rounded bg-gray-200 text-gray-700 hover:bg-gray-300"
               >

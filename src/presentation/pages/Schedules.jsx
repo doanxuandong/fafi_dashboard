@@ -4,6 +4,8 @@ import { listProjects } from '../../infrastructure/repositories/projectsReposito
 import { listLocations } from '../../infrastructure/repositories/locationsRepository';
 import { listUsers } from '../../infrastructure/repositories/usersRepository';
 import { useAuth } from '../contexts/AuthContext';
+import { toast } from '../components/common/Toaster';
+import { confirm } from '../components/common/ConfirmDialog';
 import { Plus, Pencil, Trash2, Search, Calendar, Clock, MapPin, Users, BarChart3, AlertTriangle, CheckCircle, X } from 'lucide-react';
 import { Pagination } from 'antd';
 
@@ -96,7 +98,9 @@ export default function Schedules() {
     if (!form.locationId || !form.projectId || !form.startAt || !form.endAt) return;
     
     try {
-      if (editing) {
+      const isUpdating = !!editing;
+      if (isUpdating) {
+        console.log('Updating schedule with ID:', editing.id, 'Form data:', form);
         await updateSchedule(editing.id, form, currentUser);
       } else {
         await createSchedule(form, currentUser);
@@ -105,9 +109,10 @@ export default function Schedules() {
       setEditing(null);
       setForm(defaultForm);
       await load();
+      toast.success(isUpdating ? 'Đã cập nhật lịch làm việc thành công!' : 'Đã tạo lịch làm việc thành công!');
     } catch (error) {
       console.error('Error saving schedule:', error);
-      alert('Có lỗi xảy ra khi lưu lịch làm việc');
+      toast.error('Có lỗi xảy ra khi lưu lịch làm việc');
     }
   };
 
@@ -157,13 +162,15 @@ export default function Schedules() {
   };
 
   const onDelete = async (id) => {
-    if (!confirm('Xóa lịch làm việc này?')) return;
+    const confirmed = await confirm('Xóa lịch làm việc này?');
+    if (!confirmed) return;
     try {
       await deleteSchedule(id);
       await load();
+      toast.success('Đã xóa lịch làm việc thành công!');
     } catch (error) {
       console.error('Error deleting schedule:', error);
-      alert('Có lỗi xảy ra khi xóa lịch làm việc');
+      toast.error('Có lỗi xảy ra khi xóa lịch làm việc');
     }
   };
 
@@ -416,20 +423,6 @@ export default function Schedules() {
             <form onSubmit={submit} className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium mb-1">Địa điểm *</label>
-                  <select 
-                    value={form.locationId} 
-                    onChange={(e) => handleLocationChange(e.target.value)} 
-                    className="w-full border rounded-lg px-3 py-2"
-                    required
-                  >
-                    <option value="">-- Chọn địa điểm --</option>
-                    {locations.map(l => (
-                      <option key={l.id} value={l.id}>{l.name}</option>
-                    ))}
-                  </select>
-                </div>
-                <div>
                   <label className="block text-sm font-medium mb-1">Dự án *</label>
                   <select 
                     value={form.projectId} 
@@ -440,6 +433,20 @@ export default function Schedules() {
                     <option value="">-- Chọn dự án --</option>
                     {projects.map(p => (
                       <option key={p.id} value={p.id}>{p.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Địa điểm *</label>
+                  <select 
+                    value={form.locationId} 
+                    onChange={(e) => handleLocationChange(e.target.value)} 
+                    className="w-full border rounded-lg px-3 py-2"
+                    required
+                  >
+                    <option value="">-- Chọn địa điểm --</option>
+                    {locations.filter(l => l.status === 'confirm').map(l => (
+                      <option key={l.id} value={l.id}>{l.name}</option>
                     ))}
                   </select>
                 </div>

@@ -4,6 +4,8 @@ import { listProjects } from '../../infrastructure/repositories/projectsReposito
 import { listLocations } from '../../infrastructure/repositories/locationsRepository';
 import { uploadOrgPhoto } from '../../infrastructure/repositories/orgsRepository';
 import { useAuth } from '../contexts/AuthContext';
+import { toast } from '../components/common/Toaster';
+import { confirm } from '../components/common/ConfirmDialog';
 import { Plus, Pencil, Trash2, Search, ShoppingCart, Receipt, Package, MapPin, Calendar, DollarSign, Hash, Eye, X, Upload, Image as ImageIcon } from 'lucide-react';
 import { Pagination } from 'antd';
 
@@ -93,7 +95,8 @@ export default function Sales() {
     
     try {
       const userName = currentUser?.displayName || currentUser?.email || null;
-      if (editing) {
+      const isUpdating = !!editing;
+      if (isUpdating) {
         await updateSale(editing.id, form, currentUser);
       } else {
         await createSale(form, currentUser, userName);
@@ -102,9 +105,10 @@ export default function Sales() {
       setEditing(null);
       setForm(defaultForm);
       await load();
+      toast.success(isUpdating ? 'Đã cập nhật thông tin bán hàng thành công!' : 'Đã tạo thông tin bán hàng thành công!');
     } catch (error) {
       console.error('Error saving sale:', error);
-      alert('Có lỗi xảy ra khi lưu thông tin bán hàng');
+      toast.error('Có lỗi xảy ra khi lưu thông tin bán hàng');
     }
   };
 
@@ -129,13 +133,15 @@ export default function Sales() {
   };
 
   const onDelete = async (id) => {
-    if (!confirm('Xóa thông tin bán hàng này?')) return;
+    const confirmed = await confirm('Xóa thông tin bán hàng này?');
+    if (!confirmed) return;
     try {
       await deleteSale(id);
       await load();
+      toast.success('Đã xóa thông tin bán hàng thành công!');
     } catch (error) {
       console.error('Error deleting sale:', error);
-      alert('Có lỗi xảy ra khi xóa thông tin bán hàng');
+      toast.error('Có lỗi xảy ra khi xóa thông tin bán hàng');
     }
   };
 
@@ -229,9 +235,10 @@ export default function Sales() {
       } else {
         setForm({ ...form, photos: [...form.photos, ...urls] });
       }
+      toast.success('Đã tải ảnh lên thành công!');
     } catch (error) {
       console.error('Error uploading photos:', error);
-      alert('Có lỗi xảy ra khi tải ảnh lên');
+      toast.error('Có lỗi xảy ra khi tải ảnh lên');
     } finally {
       setUploadingPhotos(false);
     }

@@ -50,7 +50,9 @@ export async function listSchedules({ accessibleProjectIds = null } = {}) {
   const colRef = collection(db, COLLECTION);
   const q = query(colRef, orderBy('createdAt', 'desc'));
   const snapshot = await getDocs(q);
-  let items = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+  // Spread Firestore data first, then assign the canonical document id
+  // to avoid any embedded "id" field in the document from overriding doc.id
+  let items = snapshot.docs.map(d => ({ ...d.data(), id: d.id }));
   
   // Filter by accessible projects if provided
   if (accessibleProjectIds !== null && accessibleProjectIds !== '*') {
@@ -65,7 +67,7 @@ export async function listSchedulesByProject(projectId) {
   const colRef = collection(db, COLLECTION);
   const q = query(colRef, where('projectId', '==', projectId), orderBy('createdAt', 'desc'));
   const snapshot = await getDocs(q);
-  return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+  return snapshot.docs.map(d => ({ ...d.data(), id: d.id }));
 }
 
 // List schedules by location
@@ -73,7 +75,7 @@ export async function listSchedulesByLocation(locationId) {
   const colRef = collection(db, COLLECTION);
   const q = query(colRef, where('locationId', '==', locationId), orderBy('createdAt', 'desc'));
   const snapshot = await getDocs(q);
-  return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+  return snapshot.docs.map(d => ({ ...d.data(), id: d.id }));
 }
 
 // Create new schedule
@@ -84,7 +86,6 @@ export async function createSchedule(data, user) {
   const locationCode = data.locationId ? data.locationId.split('_').pop() : '';
   
   const payload = {
-    id: data.id || doc(colRef).id,
     projectId: data.projectId || '',
     locationId: data.locationId || '',
     locationName: data.locationName || '',
@@ -101,7 +102,7 @@ export async function createSchedule(data, user) {
   };
   
   const docRef = await addDoc(colRef, payload);
-  return { id: docRef.id, ...payload };
+  return { ...payload, id: docRef.id };
 }
 
 // Update schedule

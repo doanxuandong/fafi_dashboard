@@ -20,6 +20,8 @@ import { listProjects } from '../../infrastructure/repositories/projectsReposito
 import { listOrgs } from '../../infrastructure/repositories/orgsRepository';
 import { listAcls } from '../../infrastructure/repositories/aclsRepository';
 import { useAuth } from '../contexts/AuthContext';
+import { toast } from '../components/common/Toaster';
+import { confirm } from '../components/common/ConfirmDialog';
 
 const mockTrainingModules = [
   {
@@ -106,7 +108,8 @@ export default function StaffManagement() {
   const handleCreateStaff = async (e) => {
     e.preventDefault();
     try {
-      if (editingStaff) {
+      const isUpdating = !!editingStaff;
+      if (isUpdating) {
         await updateUser(editingStaff.id, {
           displayName: form.displayName,
           phoneNumber: form.phoneNumber,
@@ -121,18 +124,21 @@ export default function StaffManagement() {
       setEditingStaff(null);
       setForm({ displayName: '', email: '', phoneNumber: '', role: roles[0] || 'admin', password: '' });
       await loadData();
+      toast.success(isUpdating ? 'Đã cập nhật nhân viên thành công!' : 'Đã tạo nhân viên thành công!');
     } catch (error) {
-      alert('Lỗi lưu nhân viên: ' + error.message);
+      toast.error('Lỗi lưu nhân viên: ' + error.message);
     }
   };
 
   const handleDeleteStaff = async (id) => {
-    if (!confirm('Xóa nhân viên này?')) return;
+    const confirmed = await confirm('Xóa nhân viên này?');
+    if (!confirmed) return;
     try {
       await deleteUser(id);
       await loadData();
+      toast.success('Đã xóa nhân viên thành công!');
     } catch (error) {
-      alert('Lỗi xóa nhân viên: ' + error.message);
+      toast.error('Lỗi xóa nhân viên: ' + error.message);
     }
   };
 
@@ -196,12 +202,19 @@ export default function StaffManagement() {
           />
           <button
             onClick={async ()=>{
-              if (!fixEmail) return alert('Nhập email');
+              if (!fixEmail) {
+                toast.warning('Vui lòng nhập email');
+                return;
+              }
               try {
                 const res = await fixSpecificUserMobileIssue(fixEmail);
-                alert(res?.success ? 'Đã sửa memberships cho '+fixEmail : 'Không sửa được: '+(res?.error||''));
+                if (res?.success) {
+                  toast.success(`Đã sửa memberships cho ${fixEmail}`);
+                } else {
+                  toast.error('Không sửa được: ' + (res?.error || ''));
+                }
               } catch (err) {
-                alert('Lỗi: '+(err?.message||err));
+                toast.error('Lỗi: ' + (err?.message || err));
               }
             }}
             className="px-3 py-2 bg-emerald-600 text-white rounded-md text-sm hover:bg-emerald-700"

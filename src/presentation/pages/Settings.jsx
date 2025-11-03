@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Settings as SettingsIcon, Save, Bell, Shield, MapPin, Users } from 'lucide-react';
 import { getSettingsByKey, saveSettingsByKey } from '../../infrastructure/repositories/settingsRepository';
 import { useAuth } from '../contexts/AuthContext';
+import { toast } from '../components/common/Toaster';
 
 export default function Settings() {
   const { isAdminAppUser } = useAuth();
@@ -72,10 +73,10 @@ export default function Settings() {
     try {
       setSaving(true);
       await saveSettingsByKey('webGeneral', settings);
-      alert('Cài đặt đã được lưu thành công!');
+      toast.success('Cài đặt đã được lưu thành công!');
     } catch (e) {
       console.error('Failed to save settings', e);
-      alert('Lưu cài đặt thất bại!');
+      toast.error('Lưu cài đặt thất bại!');
     } finally {
       setSaving(false);
     }

@@ -2,6 +2,8 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import { AuthProvider } from './presentation/contexts/AuthContext';
 import ProtectedRoute from './presentation/components/common/ProtectedRoute';
 import Layout from './presentation/components/layout/Layout';
+import { Toaster } from './presentation/components/common/Toaster';
+import { ConfirmDialog } from './presentation/components/common/ConfirmDialog';
 import Projects from './presentation/pages/Projects';
 import Locations from './presentation/pages/Locations';
 import Schedules from './presentation/pages/Schedules';
@@ -55,6 +57,8 @@ function App() {
           {/* 404 - not found */}
           <Route path="*" element={<NotFound />} />
         </Routes>
+        <Toaster />
+        <ConfirmDialog />
       </Router>
     </AuthProvider>
   );
