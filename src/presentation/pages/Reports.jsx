@@ -12,6 +12,8 @@ import {
   Calendar
 } from 'lucide-react';
 
+// ❌ TODO: Reports page hiện tại sử dụng mock data
+// Khi có repository thực sự, sẽ refactor theo Clean Architecture tương tự các pages khác
 const mockReports = [
   {
     id: 1,

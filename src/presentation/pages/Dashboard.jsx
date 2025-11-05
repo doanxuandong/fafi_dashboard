@@ -13,16 +13,22 @@ import {
   Building2
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
-import { listProjects } from '../../infrastructure/repositories/projectsRepository';
-import { listLocations } from '../../infrastructure/repositories/locationsRepository';
+// ✅ Clean Architecture: Sử dụng Custom Hooks
+import { useProjects } from '../hooks/useProjects';
+import { useLocations } from '../hooks/useLocations';
+import { useSales } from '../hooks/useSales';
+// ❌ TODO: Các phần này vẫn import trực tiếp, sẽ refactor sau nếu cần
 import { listSchedules } from '../../infrastructure/repositories/schedulesRepository';
-import { listSales } from '../../infrastructure/repositories/salesRepository';
 import { listStockAssets } from '../../infrastructure/repositories/stockAssetsRepository';
 import { listStockBalances } from '../../infrastructure/repositories/stockBalancesRepository';
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, BarChart, Bar, PieChart, Pie, Cell, Legend } from 'recharts';
 
 export default function Dashboard() {
   const { currentUser, accessibleProjects } = useAuth();
+  // ✅ Clean Architecture: Sử dụng Custom Hooks
+  const { projects, loading: projectsLoading } = useProjects({ accessibleProjectIds: accessibleProjects });
+  const { locations, loading: locationsLoading } = useLocations({ accessibleProjectIds: accessibleProjects });
+  const { sales, loading: salesLoading } = useSales({ accessibleProjectIds: accessibleProjects });
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState({
     totalProjects: 0,
@@ -67,11 +73,10 @@ export default function Dashboard() {
   const loadDashboardData = async () => {
     setLoading(true);
     try {
-      const [projects, locations, schedules, sales, assets, balances] = await Promise.all([
-        listProjects({ accessibleProjectIds: accessibleProjects }),
-        listLocations(),
+      // ✅ Projects, Locations, và Sales được load tự động bởi hooks
+      // Chỉ cần load các phần khác
+      const [schedules, assets, balances] = await Promise.all([
         listSchedules(),
-        listSales(),
         listStockAssets(),
         listStockBalances()
       ]);
@@ -82,9 +87,10 @@ export default function Dashboard() {
         return (arr || []).filter(item => !item.projectId || setIds.has(item.projectId));
       };
 
-      const scopedLocations = filterByAccess(locations);
+      // ✅ Locations và Sales đã được filter trong hooks
+      const scopedLocations = locations; // ✅ Đã được filter trong hook
       const scopedSchedules = filterByAccess(schedules);
-      const scopedSales = filterByAccess(sales);
+      const scopedSales = sales; // ✅ Đã được filter trong hook
       const scopedAssets = filterByAccess(assets);
       const scopedBalances = filterByAccess(balances);
 
@@ -110,7 +116,7 @@ export default function Dashboard() {
       ).length;
 
       setStats({
-        totalProjects: projects.length,
+        totalProjects: projects.length, // ✅ Lấy từ hook
         totalLocations: scopedLocations.length,
         todaySchedules: todaySchedules.length,
         totalSales: scopedSales.length,
@@ -183,7 +189,7 @@ export default function Dashboard() {
       // Locations by project (top 5)
       const projCount = new Map();
       (scopedLocations||[]).forEach(l=>{ if (!l.projectId) return; projCount.set(l.projectId, (projCount.get(l.projectId)||0)+1); });
-      const nameById = new Map(projects.map(p=>[p.id, p.name]));
+      const nameById = new Map(projects.map(p=>[p.id, p.name])); // ✅ Lấy từ hook
       const locByProjArr = Array.from(projCount.entries()).map(([id,c])=>({ name: nameById.get(id)||'Khác', count:c }))
         .sort((a,b)=>b.count-a.count).slice(0,5);
       setLocationsByProject(locByProjArr);
@@ -202,7 +208,7 @@ export default function Dashboard() {
 
   useEffect(() => {
     loadDashboardData();
-  }, [accessibleProjects]);
+  }, [accessibleProjects, projects, locations, sales]); // ✅ Reload khi data thay đổi
 
   const statsData = [
     {
@@ -235,7 +241,7 @@ export default function Dashboard() {
     },
   ];
 
-  if (loading) {
+  if (loading || projectsLoading || locationsLoading || salesLoading) {
     return (
       <div className="space-y-6 p-4">
         <div>

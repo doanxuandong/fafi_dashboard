@@ -1,8 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
-import { listSales, createSale, updateSale, deleteSale, calculateTotalAmount, calculateTotalQuantity } from '../../infrastructure/repositories/salesRepository';
-import { listProjects } from '../../infrastructure/repositories/projectsRepository';
+// ✅ Clean Architecture: Sử dụng Custom Hooks
+import { useSales } from '../hooks/useSales';
+import { useProjects } from '../hooks/useProjects';
+// ❌ TODO: listLocations và uploadOrgPhoto vẫn import trực tiếp
 import { listLocations } from '../../infrastructure/repositories/locationsRepository';
 import { uploadOrgPhoto } from '../../infrastructure/repositories/orgsRepository';
+import { calculateTotalAmount, calculateTotalQuantity } from '../../infrastructure/repositories/salesRepository';
 import { useAuth } from '../contexts/AuthContext';
 import { toast } from '../components/common/Toaster';
 import { confirm } from '../components/common/ConfirmDialog';
@@ -27,8 +30,22 @@ const defaultForm = {
 
 export default function Sales() {
   const { currentUser, accessibleProjects } = useAuth();
-  const [items, setItems] = useState([]);
-  const [projects, setProjects] = useState([]);
+  
+  // ✅ Clean Architecture: Sử dụng Custom Hooks
+  const {
+    sales: items,  // Rename để giữ tương thích với code cũ
+    loading: salesLoading,
+    createSale: createSaleHook,
+    updateSale: updateSaleHook,
+    deleteSale: deleteSaleHook,
+    refresh: refreshSales
+  } = useSales({ accessibleProjectIds: accessibleProjects });
+
+  const {
+    projects,
+    loading: projectsLoading
+  } = useProjects({ accessibleProjectIds: accessibleProjects });
+
   const [locations, setLocations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -76,19 +93,16 @@ export default function Sales() {
 
   const load = async () => {
     setLoading(true);
-    const [data, projectList, locationList] = await Promise.all([
-      listSales({ accessibleProjectIds: accessibleProjects }),
-      listProjects({ accessibleProjectIds: accessibleProjects }),
-      listLocations({ accessibleProjectIds: accessibleProjects })
-    ]);
-    setItems(data);
-    setProjects(projectList);
+    // ✅ Sales và Projects được load tự động bởi hooks
+    // Chỉ cần load locations
+    const locationList = await listLocations({ accessibleProjectIds: accessibleProjects });
     setLocations(locationList);
     setLoading(false);
   };
 
   useEffect(() => { load(); }, [accessibleProjects]);
 
+  // ✅ Clean Architecture: Sử dụng hook methods
   const submit = async (e) => {
     e.preventDefault();
     if (!form.locationId || !form.projectId) return;
@@ -97,18 +111,18 @@ export default function Sales() {
       const userName = currentUser?.displayName || currentUser?.email || null;
       const isUpdating = !!editing;
       if (isUpdating) {
-        await updateSale(editing.id, form, currentUser);
+        await updateSaleHook(editing.id, form, currentUser);
       } else {
-        await createSale(form, currentUser, userName);
+        await createSaleHook(form, currentUser, userName);
       }
       setShowForm(false);
       setEditing(null);
       setForm(defaultForm);
-      await load();
-      toast.success(isUpdating ? 'Đã cập nhật thông tin bán hàng thành công!' : 'Đã tạo thông tin bán hàng thành công!');
+      await load(); // Reload locations
+      // ✅ Toast message đã được handle trong hook
     } catch (error) {
-      console.error('Error saving sale:', error);
-      toast.error('Có lỗi xảy ra khi lưu thông tin bán hàng');
+      // Error đã được handle trong hook
+      console.error('Error in submit:', error);
     }
   };
 
@@ -132,16 +146,15 @@ export default function Sales() {
     setShowForm(true);
   };
 
+  // ✅ Clean Architecture: Sử dụng hook method
   const onDelete = async (id) => {
-    const confirmed = await confirm('Xóa thông tin bán hàng này?');
-    if (!confirmed) return;
     try {
-      await deleteSale(id);
-      await load();
-      toast.success('Đã xóa thông tin bán hàng thành công!');
+      await deleteSaleHook(id);
+      await load(); // Reload locations
+      // ✅ Confirm và toast đã được handle trong hook
     } catch (error) {
-      console.error('Error deleting sale:', error);
-      toast.error('Có lỗi xảy ra khi xóa thông tin bán hàng');
+      // Error đã được handle trong hook
+      console.error('Error in onDelete:', error);
     }
   };
 
@@ -329,7 +342,7 @@ export default function Sales() {
             </div>
           </div>
 
-          {loading ? (
+          {(loading || salesLoading || projectsLoading) ? (
             <div className="text-center py-8 text-gray-500">Đang tải...</div>
           ) : (
             <div className="overflow-x-auto">

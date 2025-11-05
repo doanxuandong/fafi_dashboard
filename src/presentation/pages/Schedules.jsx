@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
-import { listSchedules, createSchedule, updateSchedule, deleteSchedule } from '../../infrastructure/repositories/schedulesRepository';
-import { listProjects } from '../../infrastructure/repositories/projectsRepository';
-import { listLocations } from '../../infrastructure/repositories/locationsRepository';
+// ✅ Clean Architecture: Sử dụng Custom Hooks
+import { useSchedules } from '../hooks/useSchedules';
+import { useProjects } from '../hooks/useProjects';
+import { useLocations } from '../hooks/useLocations';
+// ❌ TODO: listUsers vẫn import trực tiếp
 import { listUsers } from '../../infrastructure/repositories/usersRepository';
 import { useAuth } from '../contexts/AuthContext';
 import { toast } from '../components/common/Toaster';
@@ -21,10 +23,28 @@ const defaultForm = {
 };
 
 export default function Schedules() {
-  const { currentUser, accessibleProjects } = useAuth();
-  const [items, setItems] = useState([]);
-  const [projects, setProjects] = useState([]);
-  const [locations, setLocations] = useState([]);
+  const { currentUser, accessibleProjects, userProfile } = useAuth();
+  
+  // ✅ Clean Architecture: Sử dụng Custom Hooks
+  const {
+    schedules: items,  // Rename để giữ tương thích với code cũ
+    loading: schedulesLoading,
+    createSchedule: createScheduleHook,
+    updateSchedule: updateScheduleHook,
+    deleteSchedule: deleteScheduleHook,
+    refresh: refreshSchedules
+  } = useSchedules({ accessibleProjectIds: accessibleProjects });
+
+  const {
+    projects,
+    loading: projectsLoading
+  } = useProjects({ accessibleProjectIds: accessibleProjects });
+
+  const {
+    locations,
+    loading: locationsLoading
+  } = useLocations({ accessibleProjectIds: accessibleProjects });
+
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -78,21 +98,16 @@ export default function Schedules() {
 
   const load = async () => {
     setLoading(true);
-    const [data, projectList, locationList, userList] = await Promise.all([
-      listSchedules({ accessibleProjectIds: accessibleProjects }),
-      listProjects({ accessibleProjectIds: accessibleProjects }),
-      listLocations({ accessibleProjectIds: accessibleProjects }),
-      listUsers({ accessibleProjectIds: accessibleProjects })
-    ]);
-    setItems(data);
-    setProjects(projectList);
-    setLocations(locationList);
+    // ✅ Schedules, Projects, và Locations được load tự động bởi hooks
+    // Chỉ cần load users
+    const userList = await listUsers({});  // Always load ALL users for schedules to display member names
     setUsers(userList);
     setLoading(false);
   };
 
-  useEffect(() => { load(); }, [accessibleProjects]);
+  useEffect(() => { load(); }, [accessibleProjects, items, projects, locations]); // ✅ Reload khi data thay đổi
 
+  // ✅ Clean Architecture: Sử dụng hook methods
   const submit = async (e) => {
     e.preventDefault();
     if (!form.locationId || !form.projectId || !form.startAt || !form.endAt) return;
@@ -100,19 +115,18 @@ export default function Schedules() {
     try {
       const isUpdating = !!editing;
       if (isUpdating) {
-        console.log('Updating schedule with ID:', editing.id, 'Form data:', form);
-        await updateSchedule(editing.id, form, currentUser);
+        await updateScheduleHook(editing.id, form, currentUser);
       } else {
-        await createSchedule(form, currentUser);
+        await createScheduleHook(form, currentUser);
       }
       setShowForm(false);
       setEditing(null);
       setForm(defaultForm);
-      await load();
-      toast.success(isUpdating ? 'Đã cập nhật lịch làm việc thành công!' : 'Đã tạo lịch làm việc thành công!');
+      await load(); // Reload users
+      // ✅ Toast message đã được handle trong hook
     } catch (error) {
-      console.error('Error saving schedule:', error);
-      toast.error('Có lỗi xảy ra khi lưu lịch làm việc');
+      // Error đã được handle trong hook
+      console.error('Error in submit:', error);
     }
   };
 
@@ -161,16 +175,15 @@ export default function Schedules() {
     setShowForm(true);
   };
 
+  // ✅ Clean Architecture: Sử dụng hook method
   const onDelete = async (id) => {
-    const confirmed = await confirm('Xóa lịch làm việc này?');
-    if (!confirmed) return;
     try {
-      await deleteSchedule(id);
-      await load();
-      toast.success('Đã xóa lịch làm việc thành công!');
+      await deleteScheduleHook(id);
+      await load(); // Reload users
+      // ✅ Confirm và toast đã được handle trong hook
     } catch (error) {
-      console.error('Error deleting schedule:', error);
-      toast.error('Có lỗi xảy ra khi xóa lịch làm việc');
+      // Error đã được handle trong hook
+      console.error('Error in onDelete:', error);
     }
   };
 
@@ -296,7 +309,7 @@ export default function Schedules() {
             </div>
           </div>
 
-          {loading ? (
+          {(loading || schedulesLoading || projectsLoading || locationsLoading) ? (
             <div className="text-center py-8 text-gray-500">Đang tải...</div>
           ) : (
             <div className="overflow-x-auto">

@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { Package, DollarSign, Plus, Edit, Trash2, Search, Pencil } from 'lucide-react';
-import { listProducts, createProduct, updateProduct, deleteProduct } from '../../infrastructure/repositories/productsRepository';
-import { listPremiums, createPremium, updatePremium, deletePremium } from '../../infrastructure/repositories/premiumsRepository';
-import { listProjects } from '../../infrastructure/repositories/projectsRepository';
+// ✅ Clean Architecture: Sử dụng Custom Hooks
+import { useProducts } from '../hooks/useProducts';
+import { usePremiums } from '../hooks/usePremiums';
+import { useProjects } from '../hooks/useProjects';
 import { useAuth } from '../contexts/AuthContext';
 
 const mockStores = [
@@ -58,10 +59,31 @@ const mockProducts = [
 
 export default function Inventory() {
   const { currentUser, accessibleProjects } = useAuth();
-  const [products, setProducts] = useState([]);
-  const [premiums, setPremiums] = useState([]);
-  const [projects, setProjects] = useState([]);
-  const [loading, setLoading] = useState(true);
+  
+  // ✅ Clean Architecture: Sử dụng Custom Hooks
+  const {
+    products,
+    loading: productsLoading,
+    createProduct: createProductHook,
+    updateProduct: updateProductHook,
+    deleteProduct: deleteProductHook,
+    refresh: refreshProducts
+  } = useProducts({ accessibleProjectIds: accessibleProjects });
+
+  const {
+    premiums,
+    loading: premiumsLoading,
+    createPremium: createPremiumHook,
+    updatePremium: updatePremiumHook,
+    deletePremium: deletePremiumHook,
+    refresh: refreshPremiums
+  } = usePremiums({ accessibleProjectIds: accessibleProjects });
+
+  const {
+    projects,
+    loading: projectsLoading
+  } = useProjects({ accessibleProjectIds: accessibleProjects });
+
   const [activeTab, setActiveTab] = useState('inventory');
   const [selectedStore, setSelectedStore] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
@@ -72,84 +94,59 @@ export default function Inventory() {
   const [isEditingPremium, setIsEditingPremium] = useState(false);
   const [form, setForm] = useState({ name: '', code: '', projectId: '', unitPrice: 0, pack: '', unit: '', available: true });
 
-  useEffect(() => {
-    loadProducts();
-  }, [accessibleProjects]);
-
-  const loadProducts = async () => {
-    setLoading(true);
-    try {
-      const [data, premiumsData, projectsData] = await Promise.all([
-        listProducts(),
-        listPremiums({ search: '' }),
-        listProjects({ accessibleProjectIds: accessibleProjects })
-      ]);
-      // Filter data by accessible projects if not root
-      const filterByAccess = (arr) => {
-        if (accessibleProjects === '*') return arr || [];
-        const setIds = new Set(accessibleProjects || []);
-        return (arr || []).filter(item => !item.projectId || setIds.has(item.projectId));
-      };
-      setProducts(filterByAccess(data));
-      setPremiums(filterByAccess(premiumsData));
-      setProjects(projectsData || []);
-    } catch (error) {
-      console.error('Error loading products:', error);
-      setProducts([]);
-      setPremiums([]);
-      setProjects([]);
-    }
-    setLoading(false);
-  };
-
+  // ✅ Clean Architecture: Sử dụng hook methods
   const handleCreateProduct = async (e) => {
     e.preventDefault();
     try {
-      await createProduct(form, currentUser);
+      await createProductHook(form, currentUser);
       setShowAddProduct(false);
       setForm({ name: '', code: '', projectId: '', unitPrice: 0, pack: '', unit: '', available: true });
-      await loadProducts();
+      // ✅ Toast message đã được handle trong hook
     } catch (error) {
-      console.error('Error creating product:', error);
+      // Error đã được handle trong hook
+      console.error('Error in handleCreateProduct:', error);
     }
   };
 
   const handleUpdateProduct = async (e) => {
     e.preventDefault();
     try {
-      await updateProduct(editingProduct.id, form, currentUser);
+      await updateProductHook(editingProduct.id, form, currentUser);
       setShowEditProduct(false);
       setEditingProduct(null);
       setForm({ name: '', code: '', projectId: '', unitPrice: 0, pack: '', unit: '', available: true });
-      await loadProducts();
+      // ✅ Toast message đã được handle trong hook
     } catch (error) {
-      console.error('Error updating product:', error);
+      // Error đã được handle trong hook
+      console.error('Error in handleUpdateProduct:', error);
     }
   };
 
   const handleCreatePremium = async (e) => {
     e.preventDefault();
     try {
-      await createPremium(form, currentUser);
+      await createPremiumHook(form, currentUser);
       setShowAddPremium(false);
       setForm({ name: '', code: '', projectId: '', unitPrice: 0, pack: '', unit: '', available: true });
-      await loadProducts();
+      // ✅ Toast message đã được handle trong hook
     } catch (error) {
-      console.error('Error creating premium:', error);
+      // Error đã được handle trong hook
+      console.error('Error in handleCreatePremium:', error);
     }
   };
 
   const handleUpdatePremium = async (e) => {
     e.preventDefault();
     try {
-      await updatePremium(editingProduct.id, form, currentUser);
+      await updatePremiumHook(editingProduct.id, form, currentUser);
       setShowEditProduct(false);
       setEditingProduct(null);
       setIsEditingPremium(false);
       setForm({ name: '', code: '', projectId: '', unitPrice: 0, pack: '', unit: '', available: true });
-      await loadProducts();
+      // ✅ Toast message đã được handle trong hook
     } catch (error) {
-      console.error('Error updating premium:', error);
+      // Error đã được handle trong hook
+      console.error('Error in handleUpdatePremium:', error);
     }
   };
 
@@ -372,7 +369,7 @@ export default function Inventory() {
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
-                    {loading ? (
+                    {(productsLoading || premiumsLoading || projectsLoading) ? (
                       <tr>
                         <td colSpan="7" className="px-6 py-4 text-center text-gray-500">
                           Đang tải...
@@ -442,9 +439,13 @@ export default function Inventory() {
                               </button>
                               <button 
                                 onClick={async () => {
-                                  if (confirm('Xóa sản phẩm này?')) {
-                                    await deleteProduct(product.id);
-                                    await loadProducts();
+                                  try {
+                                    // ✅ Clean Architecture: Sử dụng hook method (confirm đã handle trong hook)
+                                    await deleteProductHook(product.id);
+                                    // ✅ Toast message đã được handle trong hook
+                                  } catch (error) {
+                                    // Error đã được handle trong hook
+                                    console.error('Error in deleteProduct:', error);
                                   }
                                 }}
                                 className="p-2 hover:bg-gray-100 rounded text-red-600"
@@ -544,7 +545,7 @@ export default function Inventory() {
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
-                    {loading ? (
+                    {(productsLoading || premiumsLoading || projectsLoading) ? (
                       <tr>
                         <td colSpan="6" className="px-6 py-4 text-center text-gray-500">
                           Đang tải...
@@ -602,9 +603,13 @@ export default function Inventory() {
                               </button>
                               <button 
                                 onClick={async () => {
-                                  if (confirm('Xóa quà tặng này?')) {
-                                    await deletePremium(premium.id);
-                                    await loadProducts();
+                                  try {
+                                    // ✅ Clean Architecture: Sử dụng hook method (confirm đã handle trong hook)
+                                    await deletePremiumHook(premium.id);
+                                    // ✅ Toast message đã được handle trong hook
+                                  } catch (error) {
+                                    // Error đã được handle trong hook
+                                    console.error('Error in deletePremium:', error);
                                   }
                                 }}
                                 className="p-2 hover:bg-gray-100 rounded text-red-600"

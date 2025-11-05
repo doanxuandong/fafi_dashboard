@@ -1,16 +1,25 @@
 import React, { useEffect, useState } from 'react';
 import { Settings as SettingsIcon, Save, Bell, Shield, MapPin, Users } from 'lucide-react';
-import { getSettingsByKey, saveSettingsByKey } from '../../infrastructure/repositories/settingsRepository';
+// ✅ Clean Architecture: Sử dụng Custom Hook
+import { useSettings } from '../hooks/useSettings';
 import { useAuth } from '../contexts/AuthContext';
 import { toast } from '../components/common/Toaster';
 
 export default function Settings() {
-  const { isAdminAppUser } = useAuth();
+  const { isAdminAppUser, currentUser } = useAuth();
   const [activeTab, setActiveTab] = useState('general');
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [loadError, setLoadError] = useState(null);
-  const [settings, setSettings] = useState({
+  
+  // ✅ Clean Architecture: Sử dụng Custom Hook
+  const {
+    settings: settingsData,
+    loading,
+    saving,
+    error: loadError,
+    saveSettings: saveSettingsHook
+  } = useSettings('webGeneral');
+
+  // Default settings
+  const defaultSettings = {
     // General settings
     companyName: 'Mondelez International',
     timezone: 'Asia/Ho_Chi_Minh',
@@ -39,28 +48,17 @@ export default function Settings() {
     roleplayRequired: true,
     testPassingScore: 80,
     autoReminder: true,
-  });
+  };
 
-  // Load settings from Firestore
+  // Local state for form settings (merge default with loaded)
+  const [settings, setSettings] = useState(defaultSettings);
+
+  // Update local state when settings are loaded
   useEffect(() => {
-    let mounted = true;
-    (async () => {
-      try {
-        setLoading(true);
-        const doc = await getSettingsByKey('webGeneral');
-        if (mounted && doc) {
-          setSettings(prev => ({ ...prev, ...doc }));
-        }
-        setLoadError(null);
-      } catch (e) {
-        console.error('Failed to load settings', e);
-        setLoadError('Không tải được cài đặt.');
-      } finally {
-        setLoading(false);
-      }
-    })();
-    return () => { mounted = false; };
-  }, []);
+    if (settingsData?.data) {
+      setSettings({ ...defaultSettings, ...settingsData.data });
+    }
+  }, [settingsData]);
 
   const handleSettingChange = (key, value) => {
     setSettings(prev => ({
@@ -69,16 +67,14 @@ export default function Settings() {
     }));
   };
 
+  // ✅ Clean Architecture: Sử dụng hook method
   const handleSave = async () => {
     try {
-      setSaving(true);
-      await saveSettingsByKey('webGeneral', settings);
-      toast.success('Cài đặt đã được lưu thành công!');
-    } catch (e) {
-      console.error('Failed to save settings', e);
-      toast.error('Lưu cài đặt thất bại!');
-    } finally {
-      setSaving(false);
+      await saveSettingsHook(settings, currentUser);
+      // ✅ Toast message đã được handle trong hook
+    } catch (error) {
+      // Error đã được handle trong hook
+      console.error('Error in handleSave:', error);
     }
   };
 

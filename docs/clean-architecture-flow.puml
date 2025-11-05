@@ -1,0 +1,113 @@
+@startuml Clean Architecture Flow Diagram
+!theme plain
+skinparam backgroundColor #FFFFFF
+skinparam linetype ortho
+
+title Clean Architecture Flow - CRUD Operation Example
+
+actor User as u
+participant "Pages\n(React Component)" as page
+participant "Hooks\n(useProjects)" as hook
+participant "useCasesService\n(Adapter)" as service
+participant "Use Cases\n(CreateProjectUseCase)" as usecase
+participant "Entity\n(Project)" as entity
+participant "Repository Interface\n(IProjectsRepository)" as repoIface
+participant "Repository Adapter\n(ProjectsRepositoryAdapter)" as adapter
+participant "Repository\n(projectsRepository)" as repo
+database "Firebase\nFirestore" as db
+
+== Create Project Flow ==
+
+u -> page: User fills form & clicks Save
+activate page
+
+page -> hook: createProject(projectData, user)
+activate hook
+
+hook -> service: createProjectUseCase.execute(projectData, user)
+activate service
+
+service -> usecase: execute(projectData, user)
+activate usecase
+
+usecase -> entity: new Project(projectData)
+activate entity
+entity -> entity: validate()
+entity -> entity: generateKeywords()
+entity --> usecase: Project instance
+deactivate entity
+
+usecase -> repoIface: createProject(projectData, user)
+activate repoIface
+
+repoIface -> adapter: createProject(projectData, user)
+activate adapter
+
+adapter -> repo: createProject(projectData, user)
+activate repo
+
+repo -> db: Firestore addDoc()
+activate db
+db --> repo: Document ID
+deactivate db
+
+repo --> adapter: Created Project Data
+deactivate repo
+
+adapter --> repoIface: Project Data
+deactivate adapter
+
+repoIface --> usecase: Project Data
+deactivate repoIface
+
+usecase -> entity: Project.fromPlainObject(data)
+activate entity
+entity --> usecase: Project Entity
+deactivate entity
+
+usecase --> service: Project Entity
+deactivate usecase
+
+service --> hook: Project Entity
+deactivate service
+
+hook -> hook: Update local state
+hook -> hook: Show toast success
+hook --> page: Project Entity
+deactivate hook
+
+page -> page: Update UI
+page --> u: Show success message
+deactivate page
+
+note right of hook
+  **Hook Responsibilities:**
+  - Manage state (loading, error)
+  - Handle UI feedback (toast)
+  - Call use cases
+end note
+
+note right of usecase
+  **Use Case Responsibilities:**
+  - Business logic
+  - Validation
+  - Entity creation
+  - Repository coordination
+end note
+
+note right of entity
+  **Entity Responsibilities:**
+  - Business rules
+  - Data validation
+  - Business calculations
+end note
+
+note right of adapter
+  **Adapter Pattern:**
+  - Connects Domain interface
+  - to Infrastructure implementation
+  - Allows swapping data sources
+end note
+
+@enduml
+

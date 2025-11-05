@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
-import { listProjects, createProject, updateProject, deleteProject } from '../../infrastructure/repositories/projectsRepository';
-import { listOrgs, createOrg, updateOrg, deleteOrg, uploadOrgPhoto } from '../../infrastructure/repositories/orgsRepository';
-import { getProjectMembers, getOrgMembers, addUserToOrg, addUserToProject, getUsersByIds, getUserOrgs, getUserProjects } from '../../infrastructure/repositories/membersRepository';
+// ✅ Clean Architecture: Sử dụng Custom Hooks thay vì gọi trực tiếp Infrastructure
+import { useProjects } from '../hooks/useProjects';
+import { useOrgs } from '../hooks/useOrgs';
+import { useMembers } from '../hooks/useMembers';
+import { useProjectsLocations } from '../hooks/useProjectsLocations';
+// ❌ TODO: listUsers và listLocations - có thể refactor sau nếu cần
 import { listUsers } from '../../infrastructure/repositories/usersRepository';
 import { listLocations } from '../../infrastructure/repositories/locationsRepository';
-import { listProjectsLocations, createProjectLocation, deleteProjectLocation, getLocationsByProject } from '../../infrastructure/repositories/projectsLocationsRepository';
 import { useAuth } from '../contexts/AuthContext';
 import { toast } from '../components/common/Toaster';
 import { confirm } from '../components/common/ConfirmDialog';
@@ -17,9 +19,43 @@ export default function Projects() {
   const { currentUser, accessibleProjects, isRoot } = useAuth();
   const [isRootFlag, setIsRootFlag] = useState(false);
   
+  // ✅ Clean Architecture: Sử dụng Custom Hooks
+  const {
+    projects: items,  // Rename để giữ tương thích với code cũ
+    loading: projectsLoading,
+    createProject: createProjectHook,
+    updateProject: updateProjectHook,
+    deleteProject: deleteProjectHook,
+    refresh: refreshProjects
+  } = useProjects({ accessibleProjectIds: accessibleProjects });
+
+  const {
+    orgs,
+    loading: orgsLoading,
+    createOrg: createOrgHook,
+    updateOrg: updateOrgHook,
+    deleteOrg: deleteOrgHook,
+    uploadOrgPhoto: uploadOrgPhotoHook,
+    refresh: refreshOrgs
+  } = useOrgs();
+
+  const {
+    getProjectMembers,
+    getOrgMembers,
+    addUserToProject,
+    addUserToOrg,
+    getUsersByIds,
+    getUserOrgs,
+    getUserProjects
+  } = useMembers();
+
+  const {
+    getLocationsByProject,
+    createProjectLocation,
+    deleteProjectLocation
+  } = useProjectsLocations();
+  
   // Data states
-  const [items, setItems] = useState([]); // projects
-  const [orgs, setOrgs] = useState([]);
   const [locations, setLocations] = useState([]);
   const [projectMembers, setProjectMembers] = useState({});
   const [orgMembers, setOrgMembers] = useState({});
@@ -131,27 +167,18 @@ export default function Projects() {
 
   const load = async () => {
     setLoading(true);
-    const [data, orgList, usersList, locationsList] = await Promise.all([
-      listProjects({ accessibleProjectIds: accessibleProjects }),
-      listOrgs(),
+    // ✅ Projects và Orgs được load tự động bởi hooks
+    // Chỉ cần load các phần khác
+    const [usersList, locationsList] = await Promise.all([
       listUsers(),
       listLocations({}) // Load ALL locations, not filtered by accessible projects
     ]);
-    setItems(data);
     setAllUsers(usersList);
     setLocations(locationsList);
     
-    // Non-root: limit orgs to those that have at least one accessible project
-    if (accessibleProjects === '*' ) {
-      setOrgs(orgList);
-    } else {
-      const accessibleSet = new Set((data || []).map(p => p.orgId));
-      setOrgs((orgList || []).filter(o => accessibleSet.has(o.id)));
-    }
-    
     // Load members for each project
     const projectMembersMap = {};
-    for (const project of data) {
+    for (const project of items) {
       try {
         const members = await getProjectMembers(project.id);
         projectMembersMap[project.id] = members.length;
@@ -164,7 +191,7 @@ export default function Projects() {
     
     // Load members for each org
     const orgMembersMap = {};
-    for (const org of orgList) {
+    for (const org of orgs) {
       try {
         const members = await getOrgMembers(org.id);
         orgMembersMap[org.id] = members.length;
@@ -177,7 +204,7 @@ export default function Projects() {
     
     // Load project-location relationships
     const projectLocationsMap = {};
-    for (const project of data) {
+    for (const project of items) {
       try {
         const locs = await getLocationsByProject(project.id);
         projectLocationsMap[project.id] = locs.map(pl => pl.locationId);
@@ -191,20 +218,31 @@ export default function Projects() {
     setLoading(false);
   };
 
-  useEffect(() => { (async () => { setIsRootFlag(await isRoot()); await load(); })(); }, [accessibleProjects]);
+  useEffect(() => { 
+    (async () => { 
+      setIsRootFlag(await isRoot()); 
+      await load(); 
+    })(); 
+  }, [accessibleProjects, items, orgs]); // ✅ Reload khi projects hoặc orgs thay đổi
 
+  // ✅ Clean Architecture: Sử dụng hook methods
   const submitProject = async (e) => {
     e.preventDefault();
     if (!form.name?.trim()) return;
-    if (editing) {
-      await updateProject(editing.id, form, currentUser);
-    } else {
-      await createProject(form, currentUser);
+    try {
+      if (editing) {
+        await updateProjectHook(editing.id, form, currentUser);
+      } else {
+        await createProjectHook(form, currentUser);
+      }
+      setShowForm(false);
+      setEditing(null);
+      setForm(defaultProjectForm);
+      await load(); // Reload other data
+    } catch (error) {
+      // Error đã được handle trong hook
+      console.error('Error in submitProject:', error);
     }
-    setShowForm(false);
-    setEditing(null);
-    setForm(defaultProjectForm);
-    await load();
   };
 
   const onEditProject = (item) => {
@@ -218,12 +256,18 @@ export default function Projects() {
     setShowForm(true);
   };
 
+  // ✅ Clean Architecture: Sử dụng hook method
   const onDeleteProject = async (id) => {
-    if (!confirm('Xóa dự án này?')) return;
-    await deleteProject(id);
-    await load();
+    try {
+      await deleteProjectHook(id);
+      await load(); // Reload other data
+    } catch (error) {
+      // Error đã được handle trong hook
+      console.error('Error in onDeleteProject:', error);
+    }
   };
 
+  // ✅ Clean Architecture: Sử dụng hook methods
   const createNewOrg = async (e) => {
     e.preventDefault();
     if (!orgForm.name?.trim()) return;
@@ -234,17 +278,17 @@ export default function Projects() {
       if (editingOrg) {
         // Sửa org: upload ảnh nếu có
         if (orgPhotoFile) {
-          const photoUrl = await uploadOrgPhoto(editingOrg.id, orgPhotoFile);
+          const photoUrl = await uploadOrgPhotoHook(editingOrg.id, orgPhotoFile);
           photoUrls = [photoUrl];
         }
-        await updateOrg(editingOrg.id, { ...orgForm, photoUrls: photoUrls.length > 0 ? photoUrls : orgForm.photoUrls }, currentUser);
+        await updateOrgHook(editingOrg.id, { ...orgForm, photoUrls: photoUrls.length > 0 ? photoUrls : orgForm.photoUrls }, currentUser);
       } else {
         // Tạo org mới: tạo document trước, rồi upload ảnh
-        const newOrg = await createOrg(orgForm, currentUser);
+        const newOrg = await createOrgHook(orgForm, currentUser);
         if (orgPhotoFile) {
-          const photoUrl = await uploadOrgPhoto(newOrg.id, orgPhotoFile);
+          const photoUrl = await uploadOrgPhotoHook(newOrg.id, orgPhotoFile);
           photoUrls = [photoUrl];
-          await updateOrg(newOrg.id, { photoUrls }, currentUser);
+          await updateOrgHook(newOrg.id, { photoUrls }, currentUser);
         }
       }
       
@@ -252,10 +296,10 @@ export default function Projects() {
       setOrgForm({ name: '', code: '', description: '' });
       setEditingOrg(null);
       setOrgPhotoFile(null);
-      await load();
+      await load(); // Reload other data
     } catch (error) {
-      console.error('Error saving org:', error);
-      toast.error('Lỗi lưu tổ chức: ' + error.message);
+      // Error đã được handle trong hook
+      console.error('Error in createNewOrg:', error);
     } finally {
       setUploadingOrgPhoto(false);
     }
@@ -268,10 +312,15 @@ export default function Projects() {
     setShowOrgForm(true);
   };
 
+  // ✅ Clean Architecture: Sử dụng hook method
   const onDeleteOrg = async (id) => {
-    if (!confirm('Xóa tổ chức này?')) return;
-    await deleteOrg(id);
-    await load();
+    try {
+      await deleteOrgHook(id);
+      await load(); // Reload other data
+    } catch (error) {
+      // Error đã được handle trong hook
+      console.error('Error in onDeleteOrg:', error);
+    }
   };
 
   // Load user memberships from orgs_members and projects_members
@@ -398,7 +447,7 @@ export default function Projects() {
                 </div>
               </div>
 
-              {loading ? (
+              {(loading || projectsLoading || orgsLoading) ? (
                 <div className="text-center py-8 text-gray-500">Đang tải...</div>
               ) : (
                 <div className="overflow-x-auto">
@@ -502,7 +551,7 @@ export default function Projects() {
                 </div>
               </div>
 
-          {loading ? (
+          {(loading || projectsLoading) ? (
             <div className="text-center py-8 text-gray-500">Đang tải...</div>
           ) : (
             <div className="overflow-x-auto">
@@ -577,7 +626,7 @@ export default function Projects() {
                 <h3 className="text-lg font-medium text-gray-900">Phân công địa điểm cho dự án</h3>
               </div>
 
-              {loading ? (
+              {(loading || projectsLoading || orgsLoading) ? (
                 <div className="text-center py-8 text-gray-500">Đang tải...</div>
               ) : (
                 <div className="overflow-x-auto">
@@ -873,9 +922,10 @@ export default function Projects() {
                                 // Reload memberships to show updated data
                                 await loadUserMemberships();
                                 await load();
-                                toast.success('Đã thêm nhân sự thành công!');
+                                // ✅ Toast message đã được handle trong hook
                               } catch (error) {
-                                toast.error('Lỗi thêm nhân sự: ' + error.message);
+                                // Error đã được handle trong hook
+                                console.error('Error adding user:', error);
                               }
                             }}
                             className="px-3 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700"
@@ -1079,15 +1129,13 @@ export default function Projects() {
                           </div>
                           <button
                             onClick={async () => {
-                              const confirmed = await confirm('Bỏ phân công địa điểm này?');
-                              if (confirmed) {
-                                try {
-                                  await deleteProjectLocation(selectedProjectForLocation.id, locationId);
-                                  await load();
-                                  toast.success('Đã bỏ phân công địa điểm thành công!');
-                                } catch (error) {
-                                  toast.error('Lỗi bỏ phân công: ' + error.message);
-                                }
+                              try {
+                                // ✅ Confirm và toast đã được handle trong hook
+                                await deleteProjectLocation(selectedProjectForLocation.id, locationId);
+                                await load();
+                              } catch (error) {
+                                // Error đã được handle trong hook
+                                console.error('Error in deleteProjectLocation:', error);
                               }
                             }}
                             className="p-1 text-red-600 hover:bg-red-50 rounded"
@@ -1190,12 +1238,13 @@ export default function Projects() {
                               locationName: location.name
                             }, currentUser);
                             await load();
-                            toast.success('Đã phân công địa điểm thành công!');
+                            // ✅ Toast message đã được handle trong hook
                             setLocationModalSearch('');
                             setLocationModalProvince('');
                             setLocationModalDistrict('');
                           } catch (error) {
-                            toast.error('Lỗi phân công địa điểm: ' + error.message);
+                            // Error đã được handle trong hook
+                            console.error('Error in createProjectLocation:', error);
                           }
                         }}
                         className="px-3 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700"

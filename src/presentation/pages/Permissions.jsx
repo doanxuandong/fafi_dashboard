@@ -1,8 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Resource, PermissionAction, UserRole } from '../../infrastructure/services/permissionService';
-import { listAcls, createAclRule, updateAclRule, deleteAclRule } from '../../infrastructure/repositories/aclsRepository';
-import { getProjectById, listProjects } from '../../infrastructure/repositories/projectsRepository';
-import { listOrgs } from '../../infrastructure/repositories/orgsRepository';
+// ✅ Clean Architecture: Sử dụng Custom Hooks
+import { useACLs } from '../hooks/useACLs';
+import { useProjects } from '../hooks/useProjects';
+import { useOrgs } from '../hooks/useOrgs';
+// ❌ TODO: getProjectById vẫn import trực tiếp
+import { getProjectById } from '../../infrastructure/repositories/projectsRepository';
 import { useAuth } from '../contexts/AuthContext';
 import { toast } from '../components/common/Toaster';
 import { confirm } from '../components/common/ConfirmDialog';
@@ -12,15 +15,9 @@ export default function Permissions() {
   const { currentUser, accessibleProjects } = useAuth();
 
   const [orgId, setOrgId] = useState('');
-  const [orgs, setOrgs] = useState([]);
-  const [orgsLoading, setOrgsLoading] = useState(false);
   const [projectId, setProjectId] = useState('');
   const [projectName, setProjectName] = useState('');
   const [projectLoading, setProjectLoading] = useState(false);
-  const [projects, setProjects] = useState([]);
-  const [projectsLoading, setProjectsLoading] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [rules, setRules] = useState([]);
   const [search, setSearch] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage] = useState(10);
@@ -36,20 +33,25 @@ export default function Permissions() {
   const ACTIONS = useMemo(() => Object.values(PermissionAction), []);
   const ROLES = useMemo(() => Object.values(UserRole), []);
 
-  async function fetchData() {
-    setLoading(true);
-    try {
-      const items = await listAcls({ orgId: orgId || undefined, projectId: projectId || undefined });
-      setRules(items);
-    } finally {
-      setLoading(false);
-    }
-  }
+  // ✅ Clean Architecture: Sử dụng Custom Hooks
+  const {
+    rules,
+    loading,
+    createRule: createRuleHook,
+    updateRule: updateRuleHook,
+    deleteRule: deleteRuleHook,
+    refresh: refreshACLs
+  } = useACLs({ orgId: orgId || undefined, projectId: projectId || undefined });
 
-  useEffect(() => {
-    fetchData();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [orgId, projectId]);
+  const {
+    orgs,
+    loading: orgsLoading
+  } = useOrgs();
+
+  const {
+    projects,
+    loading: projectsLoading
+  } = useProjects({ accessibleProjectIds: accessibleProjects, orgId: orgId || undefined });
 
   // Load project name when projectId changes
   useEffect(() => {
@@ -75,57 +77,31 @@ export default function Permissions() {
     return () => { active = false; };
   }, [projectId]);
 
-  // Load projects when orgId or accessibleProjects changes
+  // Reset selected project when org changes
   useEffect(() => {
-    let active = true;
-    async function loadProjects() {
-      setProjectsLoading(true);
-      try {
-        const list = await listProjects({ orgId: orgId || undefined, accessibleProjectIds: accessibleProjects });
-        if (!active) return;
-        setProjects(list);
-        // If currently selected project is out of scope, reset it
-        if (projectId && list.every(p => p.id !== projectId)) {
-          setProjectId('');
-          setProjectName('');
-        }
-      } catch (e) {
-        if (!active) return;
-        setProjects([]);
-      } finally {
-        if (active) setProjectsLoading(false);
-      }
-    }
-    loadProjects();
-    // reset selected project when org changes (optional)
     setProjectId('');
     setProjectName('');
-    return () => { active = false; };
-  }, [orgId, accessibleProjects]);
+  }, [orgId]);
 
   // Reset to page 1 when search/org/project changes
   useEffect(() => {
     setCurrentPage(1);
   }, [search, orgId, projectId]);
 
-  // Load organizations on mount
+  // Set first org if none selected
   useEffect(() => {
-    let active = true;
-    async function loadOrgs() {
-      setOrgsLoading(true);
-      try {
-        const list = await listOrgs();
-        if (!active) return;
-        setOrgs(list);
-        // If no org selected, optionally set first org
-        if (!orgId && list.length > 0) setOrgId(list[0].id);
-      } finally {
-        if (active) setOrgsLoading(false);
-      }
+    if (!orgId && orgs.length > 0) {
+      setOrgId(orgs[0].id);
     }
-    loadOrgs();
-    return () => { active = false; };
-  }, []);
+  }, [orgId, orgs]);
+
+  // If currently selected project is out of scope, reset it
+  useEffect(() => {
+    if (projectId && projects.length > 0 && projects.every(p => p.id !== projectId)) {
+      setProjectId('');
+      setProjectName('');
+    }
+  }, [projectId, projects]);
 
   function startCreate() {
     setEditing(null);
@@ -137,6 +113,7 @@ export default function Permissions() {
     setForm({ role: rule.role, resource: rule.resource, permissionActions: rule.permissionActions || [] });
   }
 
+  // ✅ Clean Architecture: Sử dụng hook methods
   async function handleSave(e) {
     e?.preventDefault?.();
     const payload = {
@@ -154,24 +131,31 @@ export default function Permissions() {
       return;
     }
 
-    const isUpdating = !!editing;
-    if (isUpdating) {
-      await updateAclRule(editing.id, payload, currentUser);
-    } else {
-      await createAclRule(payload, currentUser);
+    try {
+      const isUpdating = !!editing;
+      if (isUpdating) {
+        await updateRuleHook(editing.id, payload, currentUser);
+      } else {
+        await createRuleHook(payload, currentUser);
+      }
+      setEditing(null);
+      setForm({ role: 'promoter', resource: 'project', permissionActions: [] });
+      // ✅ Toast message đã được handle trong hook
+    } catch (error) {
+      // Error đã được handle trong hook
+      console.error('Error in handleSave:', error);
     }
-    setEditing(null);
-    setForm({ role: 'promoter', resource: 'project', permissionActions: [] });
-    await fetchData();
-    toast.success(isUpdating ? 'Đã cập nhật quy tắc phân quyền thành công!' : 'Đã tạo quy tắc phân quyền thành công!');
   }
 
   async function handleDelete(rule) {
-    const confirmed = await confirm('Xóa rule này?');
-    if (!confirmed) return;
-    await deleteAclRule(rule.id);
-    await fetchData();
-    toast.success('Đã xóa quy tắc phân quyền thành công!');
+    try {
+      // ✅ Clean Architecture: Sử dụng hook method (confirm đã handle trong hook)
+      await deleteRuleHook(rule.id);
+      // ✅ Toast message đã được handle trong hook
+    } catch (error) {
+      // Error đã được handle trong hook
+      console.error('Error in handleDelete:', error);
+    }
   }
 
   const filtered = useMemo(() => {

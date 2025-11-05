@@ -1,24 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useHighlight } from '../hooks/useHighlight';
-import { 
-  listStockAssets, 
-  createStockAsset, 
-  updateStockAsset, 
-  deleteStockAsset,
-  calculateTotalValue,
-  isAssetExpired,
-  getAssetsExpiringSoon
-} from '../../infrastructure/repositories/stockAssetsRepository';
-import { 
-  listStockBalances, 
-  createStockBalance, 
-  updateStockBalance, 
-  deleteStockBalance,
-  calculateTotalStockValue,
-  calculateAvailableStock,
-  getLowStockItems,
-  getStockMovementSummary
-} from '../../infrastructure/repositories/stockBalancesRepository';
+// ✅ Clean Architecture: Sử dụng Custom Hooks
+import { useStockAssets } from '../hooks/useStockAssets';
+import { useStockBalances } from '../hooks/useStockBalances';
+import { useProjects } from '../hooks/useProjects';
+import { useLocations } from '../hooks/useLocations';
+// ❌ TODO: stockTransactions và helper functions vẫn import trực tiếp
 import { 
   listStockTransactions,
   getTransactionStatusColor,
@@ -26,8 +13,17 @@ import {
   calculateTransactionTotalQuantity,
   getTransactionSummaryByStatus
 } from '../../infrastructure/repositories/stockTransactionsRepository';
-import { listProjects } from '../../infrastructure/repositories/projectsRepository';
-import { listLocations } from '../../infrastructure/repositories/locationsRepository';
+import { 
+  calculateTotalValue,
+  isAssetExpired,
+  getAssetsExpiringSoon
+} from '../../infrastructure/repositories/stockAssetsRepository';
+import { 
+  calculateTotalStockValue,
+  calculateAvailableStock,
+  getLowStockItems,
+  getStockMovementSummary
+} from '../../infrastructure/repositories/stockBalancesRepository';
 import { useAuth } from '../contexts/AuthContext';
 import { toast } from '../components/common/Toaster';
 import { confirm } from '../components/common/ConfirmDialog';
@@ -99,13 +95,39 @@ const defaultBalanceForm = {
 };
 
 export default function StockManagement() {
-  const { currentUser } = useAuth();
+  const { currentUser, accessibleProjects } = useAuth();
   const [activeTab, setActiveTab] = useState('overview');
-  const [assets, setAssets] = useState([]);
-  const [balances, setBalances] = useState([]);
+  
+  // ✅ Clean Architecture: Sử dụng Custom Hooks
+  const {
+    assets,
+    loading: assetsLoading,
+    createAsset: createAssetHook,
+    updateAsset: updateAssetHook,
+    deleteAsset: deleteAssetHook,
+    refresh: refreshAssets
+  } = useStockAssets({ accessibleProjectIds: accessibleProjects });
+
+  const {
+    balances,
+    loading: balancesLoading,
+    createBalance: createBalanceHook,
+    updateBalance: updateBalanceHook,
+    deleteBalance: deleteBalanceHook,
+    refresh: refreshBalances
+  } = useStockBalances({ accessibleProjectIds: accessibleProjects });
+
+  const {
+    projects,
+    loading: projectsLoading
+  } = useProjects({ accessibleProjectIds: accessibleProjects });
+
+  const {
+    locations,
+    loading: locationsLoading
+  } = useLocations({ accessibleProjectIds: accessibleProjects });
+
   const [transactions, setTransactions] = useState([]);
-  const [projects, setProjects] = useState([]);
-  const [locations, setLocations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [search, setSearch] = useState('');
@@ -167,41 +189,20 @@ export default function StockManagement() {
   const load = async () => {
     setLoading(true);
     try {
-      console.log('Loading stock management data...');
-      const [assetList, balanceList, transactionList, projectList, locationList] = await Promise.all([
-        listStockAssets(),
-        listStockBalances(),
-        listStockTransactions(),
-        listProjects(),
-        listLocations()
-      ]);
-      console.log('Loaded data:', { 
-        assets: assetList.length, 
-        balances: balanceList.length, 
-        transactions: transactionList.length,
-        projects: projectList.length,
-        locations: locationList.length
-      });
-      setAssets(assetList);
-      setBalances(balanceList);
+      // ✅ Assets, Balances, Projects, và Locations được load tự động bởi hooks
+      // Chỉ cần load transactions
+      const transactionList = await listStockTransactions();
       setTransactions(transactionList);
-      setProjects(projectList);
-      setLocations(locationList);
     } catch (error) {
       console.error('Error loading stock management data:', error);
       setError('Không thể tải dữ liệu. Vui lòng thử lại sau.');
-      // Set empty arrays to prevent crashes
-      setAssets([]);
-      setBalances([]);
       setTransactions([]);
-      setProjects([]);
-      setLocations([]);
     } finally {
       setLoading(false);
     }
   };
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, [assets, balances, projects, locations]); // ✅ Reload khi data thay đổi
 
   const formatDateTime = (timestamp) => {
     if (!timestamp) return '-';
@@ -341,12 +342,13 @@ export default function StockManagement() {
                 const confirmed = await confirm('Xóa số dư này?');
                 if (confirmed) {
                   try {
-                    await deleteStockBalance(balance.id);
-                    await load();
-                    toast.success('Đã xóa số dư thành công!');
+                    // ✅ Clean Architecture: Sử dụng hook method
+                    await deleteBalanceHook(balance.id);
+                    await load(); // Reload transactions
+                    // ✅ Toast message đã được handle trong hook
                   } catch (error) {
-                    console.error('Error deleting balance:', error);
-                    toast.error('Có lỗi xảy ra khi xóa số dư');
+                    // Error đã được handle trong hook
+                    console.error('Error in deleteBalance:', error);
                   }
                 }
               }} 
@@ -361,7 +363,7 @@ export default function StockManagement() {
     );
   };
 
-  if (loading) {
+  if (loading || assetsLoading || balancesLoading || projectsLoading || locationsLoading) {
     return (
       <div className="p-4">
         <div className="flex items-center justify-between mb-6">
@@ -714,12 +716,13 @@ export default function StockManagement() {
                               const confirmed = await confirm('Xóa tài sản này?');
                               if (confirmed) {
                                 try {
-                                  await deleteStockAsset(asset.id);
-                                  await load();
-                                  toast.success('Đã xóa tài sản thành công!');
+                                  // ✅ Clean Architecture: Sử dụng hook method
+                                  await deleteAssetHook(asset.id);
+                                  await load(); // Reload transactions
+                                  // ✅ Toast message đã được handle trong hook
                                 } catch (error) {
-                                  console.error('Error deleting asset:', error);
-                                  toast.error('Có lỗi xảy ra khi xóa tài sản');
+                                  // Error đã được handle trong hook
+                                  console.error('Error in deleteAsset:', error);
                                 }
                               }
                             }} 
@@ -940,18 +943,20 @@ export default function StockManagement() {
               e.preventDefault();
               try {
                 if (editingAsset) {
-                  await updateStockAsset(editingAsset.id, assetForm, currentUser);
+                  // ✅ Clean Architecture: Sử dụng hook method
+                  await updateAssetHook(editingAsset.id, assetForm, currentUser);
                 } else {
-                  await createStockAsset(assetForm, currentUser);
+                  // ✅ Clean Architecture: Sử dụng hook method
+                  await createAssetHook(assetForm, currentUser);
                 }
-                await load();
+                await load(); // Reload transactions
                 setShowAssetForm(false);
                 setEditingAsset(null);
                 setAssetForm(defaultAssetForm);
-                toast.success(editingAsset ? 'Đã cập nhật tài sản thành công!' : 'Đã tạo tài sản thành công!');
+                // ✅ Toast message đã được handle trong hook
               } catch (error) {
-                console.error('Error saving asset:', error);
-                toast.error('Có lỗi xảy ra khi lưu tài sản');
+                // Error đã được handle trong hook
+                console.error('Error in submitAsset:', error);
               }
             }} className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1123,18 +1128,20 @@ export default function StockManagement() {
               e.preventDefault();
               try {
                 if (editingBalance) {
-                  await updateStockBalance(editingBalance.id, balanceForm, currentUser);
+                  // ✅ Clean Architecture: Sử dụng hook method
+                  await updateBalanceHook(editingBalance.id, balanceForm, currentUser);
                 } else {
-                  await createStockBalance(balanceForm, currentUser);
+                  // ✅ Clean Architecture: Sử dụng hook method
+                  await createBalanceHook(balanceForm, currentUser);
                 }
-                await load();
+                await load(); // Reload transactions
                 setShowBalanceForm(false);
                 setEditingBalance(null);
                 setBalanceForm(defaultBalanceForm);
-                toast.success(editingBalance ? 'Đã cập nhật số dư thành công!' : 'Đã tạo số dư thành công!');
+                // ✅ Toast message đã được handle trong hook
               } catch (error) {
-                console.error('Error saving balance:', error);
-                toast.error('Có lỗi xảy ra khi lưu số dư');
+                // Error đã được handle trong hook
+                console.error('Error in submitBalance:', error);
               }
             }} className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

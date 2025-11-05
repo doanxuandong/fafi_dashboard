@@ -1,0 +1,77 @@
+@startuml Clean Architecture Layers
+!theme plain
+skinparam backgroundColor #FFFFFF
+skinparam roundcorner 10
+
+title Clean Architecture - Layer Structure
+
+package "Presentation Layer\n(React)" #E3F2FD {
+    [Pages] as pages
+    [Hooks] as hooks
+    [Components] as components
+}
+
+package "Domain Layer\n(Business Logic)" #FFF3E0 {
+    [Entities] as entities
+    [Use Cases] as usecases
+    [Repository Interfaces] as interfaces
+}
+
+package "Infrastructure Layer\n(External Services)" #E8F5E9 {
+    [Repository Adapters] as adapters
+    [Repositories] as repos
+    [External Services\n(Firebase)] as external
+}
+
+pages --> hooks : uses
+hooks --> usecases : calls
+usecases --> entities : creates
+usecases --> interfaces : depends on
+adapters ..|> interfaces : implements
+adapters --> repos : delegates to
+repos --> external : connects to
+
+note right of hooks
+  **Presentation Hooks:**
+  - useProjects
+  - useOrgs
+  - useSales
+  - useLocations
+  - useSchedules
+  - useStockAssets
+  - useStockBalances
+  - useProducts
+  - usePremiums
+  - useSettings
+  - useACLs
+end note
+
+note right of usecases
+  **Use Cases:**
+  - List, Create, Update, Delete
+  - Business logic orchestration
+  - Entity validation
+  - Repository coordination
+end note
+
+note right of entities
+  **Domain Entities:**
+  - Project, Org, Sale
+  - Location, Schedule
+  - StockAsset, StockBalance
+  - Product, Premium
+  - Setting, ACLRule
+  - Pure business objects
+  - No external dependencies
+end note
+
+note right of adapters
+  **Dependency Inversion:**
+  - Domain defines interfaces
+  - Infrastructure implements them
+  - Allows easy testing
+  - Enables swapping implementations
+end note
+
+@enduml
+

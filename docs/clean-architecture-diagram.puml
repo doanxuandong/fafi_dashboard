@@ -1,0 +1,469 @@
+@startuml Clean Architecture Diagram
+!theme plain
+skinparam linetype ortho
+skinparam backgroundColor #FFFFFF
+skinparam roundcorner 10
+
+' ============================================
+' PRESENTATION LAYER
+' ============================================
+package "Presentation Layer" #E3F2FD {
+    package "Pages" #BBDEFB {
+        class ProjectsPage
+        class DashboardPage
+        class SalesPage
+        class LocationsPage
+        class SchedulesPage
+        class StockManagementPage
+        class InventoryPage
+        class SettingsPage
+        class PermissionsPage
+    }
+    
+    package "Hooks" #BBDEFB {
+        class useProjects
+        class useOrgs
+        class useSales
+        class useLocations
+        class useSchedules
+        class useStockAssets
+        class useStockBalances
+        class useProducts
+        class usePremiums
+        class useSettings
+        class useACLs
+        class useMembers
+        class useProjectsLocations
+    }
+    
+    package "Components" #BBDEFB {
+        class Toaster
+        class ConfirmDialog
+    }
+}
+
+' ============================================
+' DOMAIN LAYER
+' ============================================
+package "Domain Layer" #FFF3E0 {
+    package "Entities" #FFE0B2 {
+        class Project
+        class Org
+        class Sale
+        class Location
+        class Schedule
+        class StockAsset
+        class StockBalance
+        class Product
+        class Premium
+        class Setting
+        class ACLRule
+    }
+    
+    package "Use Cases" #FFE0B2 {
+        package "Projects" {
+            class ListProjectsUseCase
+            class CreateProjectUseCase
+            class UpdateProjectUseCase
+            class DeleteProjectUseCase
+        }
+        
+        package "Orgs" {
+            class ListOrgsUseCase
+            class CreateOrgUseCase
+            class UpdateOrgUseCase
+            class DeleteOrgUseCase
+        }
+        
+        package "Sales" {
+            class ListSalesUseCase
+            class CreateSaleUseCase
+            class UpdateSaleUseCase
+            class DeleteSaleUseCase
+        }
+        
+        package "Locations" {
+            class ListLocationsUseCase
+            class CreateLocationUseCase
+            class UpdateLocationUseCase
+            class DeleteLocationUseCase
+        }
+        
+        package "Schedules" {
+            class ListSchedulesUseCase
+            class CreateScheduleUseCase
+            class UpdateScheduleUseCase
+            class DeleteScheduleUseCase
+        }
+        
+        package "StockAssets" {
+            class ListStockAssetsUseCase
+            class CreateStockAssetUseCase
+            class UpdateStockAssetUseCase
+            class DeleteStockAssetUseCase
+        }
+        
+        package "StockBalances" {
+            class ListStockBalancesUseCase
+            class CreateStockBalanceUseCase
+            class UpdateStockBalanceUseCase
+            class DeleteStockBalanceUseCase
+        }
+        
+        package "Products" {
+            class ListProductsUseCase
+            class CreateProductUseCase
+            class UpdateProductUseCase
+            class DeleteProductUseCase
+        }
+        
+        package "Premiums" {
+            class ListPremiumsUseCase
+            class CreatePremiumUseCase
+            class UpdatePremiumUseCase
+            class DeletePremiumUseCase
+        }
+        
+        package "Settings" {
+            class GetSettingsUseCase
+            class SaveSettingsUseCase
+        }
+        
+        package "ACLs" {
+            class ListAclsUseCase
+            class CreateAclRuleUseCase
+            class UpdateAclRuleUseCase
+            class DeleteAclRuleUseCase
+        }
+        
+        package "Members" {
+            class GetProjectMembersUseCase
+            class GetOrgMembersUseCase
+            class AddUserToProjectUseCase
+            class AddUserToOrgUseCase
+        }
+        
+        package "ProjectsLocations" {
+            class GetLocationsByProjectUseCase
+            class CreateProjectLocationUseCase
+            class DeleteProjectLocationUseCase
+        }
+    }
+    
+    package "Repository Interfaces" #FFE0B2 {
+        interface IProjectsRepository
+        interface IOrgsRepository
+        interface ISalesRepository
+        interface ILocationsRepository
+        interface ISchedulesRepository
+        interface IStockAssetsRepository
+        interface IStockBalancesRepository
+        interface IProductsRepository
+        interface IPremiumsRepository
+        interface ISettingsRepository
+        interface IACLsRepository
+    }
+}
+
+' ============================================
+' INFRASTRUCTURE LAYER
+' ============================================
+package "Infrastructure Layer" #E8F5E9 {
+    package "Repositories" #C8E6C9 {
+        class ProjectsRepository
+        class OrgsRepository
+        class SalesRepository
+        class LocationsRepository
+        class SchedulesRepository
+        class StockAssetsRepository
+        class StockBalancesRepository
+        class ProductsRepository
+        class PremiumsRepository
+        class SettingsRepository
+        class ACLsRepository
+        class MembersRepository
+        class ProjectsLocationsRepository
+    }
+    
+    package "Adapters" #C8E6C9 {
+        class ProjectsRepositoryAdapter
+        class OrgsRepositoryAdapter
+        class SalesRepositoryAdapter
+        class LocationsRepositoryAdapter
+        class SchedulesRepositoryAdapter
+        class StockAssetsRepositoryAdapter
+        class StockBalancesRepositoryAdapter
+        class ProductsRepositoryAdapter
+        class PremiumsRepositoryAdapter
+        class SettingsRepositoryAdapter
+        class ACLsRepositoryAdapter
+        class MembersRepositoryAdapter
+        class ProjectsLocationsRepositoryAdapter
+    }
+    
+    package "Services" #C8E6C9 {
+        class useCasesService
+    }
+    
+    package "External" #C8E6C9 {
+        class Firebase
+        class Firestore
+    }
+}
+
+' ============================================
+' DEPENDENCIES - Presentation to Hooks
+' ============================================
+ProjectsPage --> useProjects
+DashboardPage --> useProjects
+DashboardPage --> useLocations
+DashboardPage --> useSales
+SalesPage --> useSales
+SalesPage --> useProjects
+LocationsPage --> useLocations
+LocationsPage --> useOrgs
+LocationsPage --> useProjects
+SchedulesPage --> useSchedules
+SchedulesPage --> useProjects
+SchedulesPage --> useLocations
+StockManagementPage --> useStockAssets
+StockManagementPage --> useStockBalances
+StockManagementPage --> useProjects
+StockManagementPage --> useLocations
+InventoryPage --> useProducts
+InventoryPage --> usePremiums
+InventoryPage --> useProjects
+SettingsPage --> useSettings
+PermissionsPage --> useACLs
+PermissionsPage --> useOrgs
+PermissionsPage --> useProjects
+
+' ============================================
+' DEPENDENCIES - Hooks to Use Cases
+' ============================================
+useProjects --> useCasesService
+useOrgs --> useCasesService
+useSales --> useCasesService
+useLocations --> useCasesService
+useSchedules --> useCasesService
+useStockAssets --> useCasesService
+useStockBalances --> useCasesService
+useProducts --> useCasesService
+usePremiums --> useCasesService
+useSettings --> useCasesService
+useACLs --> useCasesService
+useMembers --> useCasesService
+useProjectsLocations --> useCasesService
+
+' ============================================
+' DEPENDENCIES - Hooks to Components
+' ============================================
+useProjects --> Toaster
+useProjects --> ConfirmDialog
+useOrgs --> Toaster
+useOrgs --> ConfirmDialog
+useSales --> Toaster
+useSales --> ConfirmDialog
+useLocations --> Toaster
+useLocations --> ConfirmDialog
+useSchedules --> Toaster
+useSchedules --> ConfirmDialog
+useStockAssets --> Toaster
+useStockAssets --> ConfirmDialog
+useStockBalances --> Toaster
+useStockBalances --> ConfirmDialog
+useProducts --> Toaster
+useProducts --> ConfirmDialog
+usePremiums --> Toaster
+usePremiums --> ConfirmDialog
+useSettings --> Toaster
+useACLs --> Toaster
+useACLs --> ConfirmDialog
+
+' ============================================
+' DEPENDENCIES - Use Cases to Entities
+' ============================================
+ListProjectsUseCase --> Project
+CreateProjectUseCase --> Project
+UpdateProjectUseCase --> Project
+ListOrgsUseCase --> Org
+CreateOrgUseCase --> Org
+UpdateOrgUseCase --> Org
+ListSalesUseCase --> Sale
+CreateSaleUseCase --> Sale
+UpdateSaleUseCase --> Sale
+ListLocationsUseCase --> Location
+CreateLocationUseCase --> Location
+UpdateLocationUseCase --> Location
+ListSchedulesUseCase --> Schedule
+CreateScheduleUseCase --> Schedule
+UpdateScheduleUseCase --> Schedule
+ListStockAssetsUseCase --> StockAsset
+CreateStockAssetUseCase --> StockAsset
+UpdateStockAssetUseCase --> StockAsset
+ListStockBalancesUseCase --> StockBalance
+CreateStockBalanceUseCase --> StockBalance
+UpdateStockBalanceUseCase --> StockBalance
+ListProductsUseCase --> Product
+CreateProductUseCase --> Product
+UpdateProductUseCase --> Product
+ListPremiumsUseCase --> Premium
+CreatePremiumUseCase --> Premium
+UpdatePremiumUseCase --> Premium
+GetSettingsUseCase --> Setting
+SaveSettingsUseCase --> Setting
+ListAclsUseCase --> ACLRule
+CreateAclRuleUseCase --> ACLRule
+UpdateAclRuleUseCase --> ACLRule
+
+' ============================================
+' DEPENDENCIES - Use Cases to Repository Interfaces
+' ============================================
+ListProjectsUseCase ..> IProjectsRepository : uses
+CreateProjectUseCase ..> IProjectsRepository : uses
+UpdateProjectUseCase ..> IProjectsRepository : uses
+DeleteProjectUseCase ..> IProjectsRepository : uses
+
+ListOrgsUseCase ..> IOrgsRepository : uses
+CreateOrgUseCase ..> IOrgsRepository : uses
+UpdateOrgUseCase ..> IOrgsRepository : uses
+DeleteOrgUseCase ..> IOrgsRepository : uses
+
+ListSalesUseCase ..> ISalesRepository : uses
+CreateSaleUseCase ..> ISalesRepository : uses
+UpdateSaleUseCase ..> ISalesRepository : uses
+DeleteSaleUseCase ..> ISalesRepository : uses
+
+ListLocationsUseCase ..> ILocationsRepository : uses
+CreateLocationUseCase ..> ILocationsRepository : uses
+UpdateLocationUseCase ..> ILocationsRepository : uses
+DeleteLocationUseCase ..> ILocationsRepository : uses
+
+ListSchedulesUseCase ..> ISchedulesRepository : uses
+CreateScheduleUseCase ..> ISchedulesRepository : uses
+UpdateScheduleUseCase ..> ISchedulesRepository : uses
+DeleteScheduleUseCase ..> ISchedulesRepository : uses
+
+ListStockAssetsUseCase ..> IStockAssetsRepository : uses
+CreateStockAssetUseCase ..> IStockAssetsRepository : uses
+UpdateStockAssetUseCase ..> IStockAssetsRepository : uses
+DeleteStockAssetUseCase ..> IStockAssetsRepository : uses
+
+ListStockBalancesUseCase ..> IStockBalancesRepository : uses
+CreateStockBalanceUseCase ..> IStockBalancesRepository : uses
+UpdateStockBalanceUseCase ..> IStockBalancesRepository : uses
+DeleteStockBalanceUseCase ..> IStockBalancesRepository : uses
+
+ListProductsUseCase ..> IProductsRepository : uses
+CreateProductUseCase ..> IProductsRepository : uses
+UpdateProductUseCase ..> IProductsRepository : uses
+DeleteProductUseCase ..> IProductsRepository : uses
+
+ListPremiumsUseCase ..> IPremiumsRepository : uses
+CreatePremiumUseCase ..> IPremiumsRepository : uses
+UpdatePremiumUseCase ..> IPremiumsRepository : uses
+DeletePremiumUseCase ..> IPremiumsRepository : uses
+
+GetSettingsUseCase ..> ISettingsRepository : uses
+SaveSettingsUseCase ..> ISettingsRepository : uses
+
+ListAclsUseCase ..> IACLsRepository : uses
+CreateAclRuleUseCase ..> IACLsRepository : uses
+UpdateAclRuleUseCase ..> IACLsRepository : uses
+DeleteAclRuleUseCase ..> IACLsRepository : uses
+
+' ============================================
+' DEPENDENCIES - useCasesService to Adapters
+' ============================================
+useCasesService --> ProjectsRepositoryAdapter
+useCasesService --> OrgsRepositoryAdapter
+useCasesService --> SalesRepositoryAdapter
+useCasesService --> LocationsRepositoryAdapter
+useCasesService --> SchedulesRepositoryAdapter
+useCasesService --> StockAssetsRepositoryAdapter
+useCasesService --> StockBalancesRepositoryAdapter
+useCasesService --> ProductsRepositoryAdapter
+useCasesService --> PremiumsRepositoryAdapter
+useCasesService --> SettingsRepositoryAdapter
+useCasesService --> ACLsRepositoryAdapter
+useCasesService --> MembersRepositoryAdapter
+useCasesService --> ProjectsLocationsRepositoryAdapter
+
+' ============================================
+' DEPENDENCIES - Adapters implement Interfaces
+' ============================================
+ProjectsRepositoryAdapter ..|> IProjectsRepository : implements
+OrgsRepositoryAdapter ..|> IOrgsRepository : implements
+SalesRepositoryAdapter ..|> ISalesRepository : implements
+LocationsRepositoryAdapter ..|> ILocationsRepository : implements
+SchedulesRepositoryAdapter ..|> ISchedulesRepository : implements
+StockAssetsRepositoryAdapter ..|> IStockAssetsRepository : implements
+StockBalancesRepositoryAdapter ..|> IStockBalancesRepository : implements
+ProductsRepositoryAdapter ..|> IProductsRepository : implements
+PremiumsRepositoryAdapter ..|> IPremiumsRepository : implements
+SettingsRepositoryAdapter ..|> ISettingsRepository : implements
+ACLsRepositoryAdapter ..|> IACLsRepository : implements
+
+' ============================================
+' DEPENDENCIES - Adapters to Repositories
+' ============================================
+ProjectsRepositoryAdapter --> ProjectsRepository
+OrgsRepositoryAdapter --> OrgsRepository
+SalesRepositoryAdapter --> SalesRepository
+LocationsRepositoryAdapter --> LocationsRepository
+SchedulesRepositoryAdapter --> SchedulesRepository
+StockAssetsRepositoryAdapter --> StockAssetsRepository
+StockBalancesRepositoryAdapter --> StockBalancesRepository
+ProductsRepositoryAdapter --> ProductsRepository
+PremiumsRepositoryAdapter --> PremiumsRepository
+SettingsRepositoryAdapter --> SettingsRepository
+ACLsRepositoryAdapter --> ACLsRepository
+MembersRepositoryAdapter --> MembersRepository
+ProjectsLocationsRepositoryAdapter --> ProjectsLocationsRepository
+
+' ============================================
+' DEPENDENCIES - Repositories to External
+' ============================================
+ProjectsRepository --> Firebase
+OrgsRepository --> Firebase
+SalesRepository --> Firebase
+LocationsRepository --> Firebase
+SchedulesRepository --> Firebase
+StockAssetsRepository --> Firebase
+StockBalancesRepository --> Firebase
+ProductsRepository --> Firebase
+PremiumsRepository --> Firebase
+SettingsRepository --> Firebase
+ACLsRepository --> Firebase
+MembersRepository --> Firebase
+ProjectsLocationsRepository --> Firebase
+
+Firebase --> Firestore
+
+' ============================================
+' NOTES
+' ============================================
+note right of "Domain Layer"
+  **Dependency Rule:**
+  Dependencies point inward
+  - Domain has no dependencies
+  - Infrastructure implements Domain interfaces
+  - Presentation uses Domain Use Cases
+end note
+
+note right of "Presentation Layer"
+  **React Components & Hooks:**
+  - Pages are React components
+  - Hooks encapsulate business logic
+  - Components use Hooks, not Repositories directly
+end note
+
+note right of "Infrastructure Layer"
+  **Adapters Pattern:**
+  - Adapters connect Domain interfaces
+  - to Infrastructure implementations
+  - Allows easy swapping of data sources
+end note
+
+@enduml
+

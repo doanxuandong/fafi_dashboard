@@ -1,9 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
-import { listLocations, createLocation, updateLocation, deleteLocation, createDefaultLocationMark, createDefaultWarehouseProperties } from '../../infrastructure/repositories/locationsRepository';
-import { listOrgs, createOrg } from '../../infrastructure/repositories/orgsRepository';
-import { listProjects } from '../../infrastructure/repositories/projectsRepository';
+// ✅ Clean Architecture: Sử dụng Custom Hooks
+import { useLocations } from '../hooks/useLocations';
+import { useOrgs } from '../hooks/useOrgs';
+import { useProjects } from '../hooks/useProjects';
+// ❌ TODO: listUsers và locationsMembers vẫn import trực tiếp
 import { listUsers } from '../../infrastructure/repositories/usersRepository';
 import { getLocationMembers, addUserToLocation, removeUserFromLocation, getUsersByIds } from '../../infrastructure/repositories/locationsMembersRepository';
+import { createDefaultLocationMark, createDefaultWarehouseProperties } from '../../infrastructure/repositories/locationsRepository';
 import { useAuth } from '../contexts/AuthContext';
 import { toast } from '../components/common/Toaster';
 import { confirm } from '../components/common/ConfirmDialog';
@@ -54,9 +57,28 @@ const saleTitleOptions = [
 
 export default function Locations() {
   const { currentUser, accessibleProjects } = useAuth();
-  const [items, setItems] = useState([]);
-  const [orgs, setOrgs] = useState([]);
-  const [projects, setProjects] = useState([]);
+  
+  // ✅ Clean Architecture: Sử dụng Custom Hooks
+  const {
+    locations: items,  // Rename để giữ tương thích với code cũ
+    loading: locationsLoading,
+    createLocation: createLocationHook,
+    updateLocation: updateLocationHook,
+    deleteLocation: deleteLocationHook,
+    refresh: refreshLocations
+  } = useLocations({ accessibleProjectIds: accessibleProjects });
+
+  const {
+    orgs,
+    loading: orgsLoading,
+    createOrg: createOrgHook
+  } = useOrgs();
+
+  const {
+    projects,
+    loading: projectsLoading
+  } = useProjects({ accessibleProjectIds: accessibleProjects });
+
   const [allUsers, setAllUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -122,19 +144,9 @@ export default function Locations() {
 
   const load = async () => {
     setLoading(true);
-    const [data, orgList, projectList, usersList] = await Promise.all([
-      listLocations({ accessibleProjectIds: accessibleProjects }),
-      listOrgs(),
-      listProjects({ accessibleProjectIds: accessibleProjects }),
-      listUsers()
-    ]);
-    // Filter locations by accessible projects (if not root '*')
-    const filteredByAccess = accessibleProjects === '*' 
-      ? data 
-      : (data || []).filter(i => i.projectId && (accessibleProjects || []).includes(i.projectId));
-    setItems(filteredByAccess);
-    setOrgs(orgList);
-    setProjects(projectList);
+    // ✅ Locations, Orgs, và Projects được load tự động bởi hooks
+    // Chỉ cần load users
+    const usersList = await listUsers();
     setAllUsers(usersList);
     setLoading(false);
   };
@@ -365,7 +377,8 @@ export default function Locations() {
         if (metaName) payload.meta = { ...(payload.meta||{}), name: metaName };
 
         try {
-          await createLocation(payload, currentUser);
+          // ✅ Clean Architecture: Sử dụng hook method
+          await createLocationHook(payload, currentUser);
           success++; 
           logs.push(`✓ OK: ${name} (${code})`);
           // Add to existing set to prevent duplicates within the same import batch
@@ -392,7 +405,7 @@ export default function Locations() {
     }
   };
 
-  useEffect(() => { load(); }, [accessibleProjects]);
+  useEffect(() => { load(); }, [accessibleProjects, items, orgs, projects]); // ✅ Reload khi data thay đổi
 
   // Load user location memberships when tab changes to assignment
   useEffect(() => {
@@ -408,15 +421,17 @@ export default function Locations() {
     try {
       const isUpdating = !!editing;
       if (isUpdating) {
-        await updateLocation(editing.id, form, currentUser);
+        // ✅ Clean Architecture: Sử dụng hook method
+        await updateLocationHook(editing.id, form, currentUser);
       } else {
-        await createLocation(form, currentUser);
+        // ✅ Clean Architecture: Sử dụng hook method
+        await createLocationHook(form, currentUser);
       }
       setShowForm(false);
       setEditing(null);
       setForm(defaultForm);
       await load();
-      toast.success(isUpdating ? 'Đã cập nhật địa điểm thành công!' : 'Đã tạo địa điểm thành công!');
+      // ✅ Toast message đã được handle trong hook
     } catch (error) {
       console.error('Error saving location:', error);
       toast.error('Có lỗi xảy ra khi lưu địa điểm');
@@ -452,9 +467,10 @@ export default function Locations() {
     const confirmed = await confirm('Xóa địa điểm này?');
     if (!confirmed) return;
     try {
-      await deleteLocation(item.id, item.projectId);
+      // ✅ Clean Architecture: Sử dụng hook method
+      await deleteLocationHook(item.id);
       await load();
-      toast.success('Đã xóa địa điểm thành công!');
+      // ✅ Toast message đã được handle trong hook
     } catch (error) {
       console.error('Error deleting location:', error);
       toast.error('Có lỗi xảy ra khi xóa địa điểm');
@@ -463,9 +479,10 @@ export default function Locations() {
 
   const onConfirm = async (item) => {
     try {
-      await updateLocation(item.id, { ...item, status: 'confirm' }, currentUser);
+      // ✅ Clean Architecture: Sử dụng hook method
+      await updateLocationHook(item.id, { ...item, status: 'confirm' }, currentUser);
       await load();
-      toast.success('Đã cập nhật trạng thái thành công!');
+      // ✅ Toast message đã được handle trong hook
     } catch (error) {
       console.error('Error confirming location:', error);
       toast.error('Có lỗi xảy ra khi cập nhật trạng thái');
@@ -476,7 +493,8 @@ export default function Locations() {
     e.preventDefault();
     if (!orgForm.name?.trim()) return;
     try {
-      const newOrg = await createOrg(orgForm, currentUser);
+      // ✅ Clean Architecture: Sử dụng hook method
+      const newOrg = await createOrgHook(orgForm, currentUser);
       setOrgs([...orgs, newOrg]);
       setForm({...form, orgId: newOrg.id});
       setShowOrgForm(false);
@@ -666,7 +684,7 @@ export default function Locations() {
             </div>
           )}
 
-          {loading ? (
+          {(loading || locationsLoading || orgsLoading || projectsLoading) ? (
             <div className="text-center py-8 text-gray-500">Đang tải...</div>
           ) : (
             <div className="overflow-x-auto">
