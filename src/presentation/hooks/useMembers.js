@@ -61,6 +61,30 @@ export function useMembers() {
     }
   }, []);
 
+  // Remove user from project
+  const removeUserFromProject = useCallback(async (userId, projectId) => {
+    try {
+      await membersRepositoryAdapter.removeUserFromProject(userId, projectId);
+      toast.success('Đã xóa nhân sự khỏi dự án thành công!');
+    } catch (err) {
+      console.error('Error removing user from project:', err);
+      toast.error('Lỗi xóa nhân sự khỏi dự án: ' + err.message);
+      throw err;
+    }
+  }, []);
+
+  // Remove user from org
+  const removeUserFromOrg = useCallback(async (userId, orgId) => {
+    try {
+      await membersRepositoryAdapter.removeUserFromOrg(userId, orgId);
+      toast.success('Đã xóa nhân sự khỏi tổ chức thành công!');
+    } catch (err) {
+      console.error('Error removing user from org:', err);
+      toast.error('Lỗi xóa nhân sự khỏi tổ chức: ' + err.message);
+      throw err;
+    }
+  }, []);
+
   // Additional helper methods
   const getUsersByIds = useCallback(async (userIds) => {
     return await membersRepositoryAdapter.getUsersByIds(userIds);
@@ -79,6 +103,8 @@ export function useMembers() {
     getOrgMembers,
     addUserToProject,
     addUserToOrg,
+    removeUserFromProject,
+    removeUserFromOrg,
     getUsersByIds,
     getUserOrgs,
     getUserProjects

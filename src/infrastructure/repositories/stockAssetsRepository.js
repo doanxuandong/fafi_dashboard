@@ -42,11 +42,18 @@ function generateKeywords(text) {
 }
 
 // List all stock assets
-export async function listStockAssets() {
+export async function listStockAssets({ accessibleProjectIds = null } = {}) {
   const colRef = collection(db, COLLECTION);
   const q = query(colRef, orderBy('createdAt', 'desc'));
   const snapshot = await getDocs(q);
-  return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+  let items = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+  
+  // Filter by accessible projects if provided
+  if (accessibleProjectIds !== null && accessibleProjectIds !== '*') {
+    items = items.filter(item => accessibleProjectIds.includes(item.projectId));
+  }
+  
+  return items;
 }
 
 // List stock assets by project

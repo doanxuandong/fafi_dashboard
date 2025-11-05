@@ -121,21 +121,32 @@ export async function createUser(data, user) {
 
 export async function updateUser(id, data, user) {
   const ref = doc(db, COLLECTION, id);
+  
+  // Get existing user data to preserve email if not provided
+  const existingUser = await getUserById(id);
+  if (!existingUser) {
+    throw new Error('User not found');
+  }
+  
   const payload = {
     ...data,
     updatedAt: serverTimestamp(),
     updatedBy: user?.uid || 'system',
+    // Ensure phoneNumber is null instead of empty string
+    phoneNumber: data.phoneNumber === '' ? null : (data.phoneNumber !== undefined ? data.phoneNumber : existingUser.phoneNumber),
+    // Update keywords if relevant fields changed - use existing values if not provided
     ...((data.displayName || data.email || data.code || data.role)
       ? {
           keywords: generateUserKeywords({
-            displayName: data.displayName,
-            email: data.email,
-            code: data.code,
-            role: data.role,
+            displayName: data.displayName || existingUser.displayName,
+            email: data.email || existingUser.email,
+            code: data.code || existingUser.code,
+            role: data.role || existingUser.role,
           }),
         }
       : {}),
   };
+  
   await updateDoc(ref, payload);
 
   // Auto-sync: whenever projectIds are updated, ensure mobile mappings exist

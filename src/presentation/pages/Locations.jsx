@@ -480,7 +480,8 @@ export default function Locations() {
   const onConfirm = async (item) => {
     try {
       // ✅ Clean Architecture: Sử dụng hook method
-      await updateLocationHook(item.id, { ...item, status: 'confirm' }, currentUser);
+      // Đổi từ 'confirm' thành 'accepted' (Cho phép)
+      await updateLocationHook(item.id, { ...item, status: 'accepted' }, currentUser);
       await load();
       // ✅ Toast message đã được handle trong hook
     } catch (error) {
@@ -725,7 +726,7 @@ export default function Locations() {
                       </td>
                       <td className="px-4 py-2">
                         <div className="flex items-center gap-2">
-                          <button onClick={() => onConfirm(item)} className="p-2 hover:bg-gray-100 rounded text-green-600" title="Xác nhận">
+                          <button onClick={() => onConfirm(item)} className="p-2 hover:bg-gray-100 rounded text-green-600" title="Cho phép">
                             <Check className="w-4 h-4" />
                           </button>
                           <button onClick={() => onEdit(item)} className="p-2 hover:bg-gray-100 rounded">

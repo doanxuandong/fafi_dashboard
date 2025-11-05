@@ -458,7 +458,7 @@ export default function Schedules() {
                     required
                   >
                     <option value="">-- Chọn địa điểm --</option>
-                    {locations.filter(l => l.status === 'confirm').map(l => (
+                    {locations.filter(l => l.status === 'accepted').map(l => (
                       <option key={l.id} value={l.id}>{l.name}</option>
                     ))}
                   </select>

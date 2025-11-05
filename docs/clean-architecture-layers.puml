@@ -3,7 +3,7 @@
 skinparam backgroundColor #FFFFFF
 skinparam roundcorner 10
 
-title Clean Architecture - Layer Structure
+title Clean Architecture - Fafi Dashboard
 
 package "Presentation Layer\n(React)" #E3F2FD {
     [Pages] as pages

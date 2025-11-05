@@ -53,11 +53,11 @@ export async function createLocation(data, user) {
   const docRef = doc(colRef, id);
   
   // Remove address from top level if exists (use locationMark.address instead)
-  const { address, ...cleanData } = data;
+  const { address, id: _ignoreId, ...cleanData } = data;
   
   const payload = {
-    id,
     ...cleanData,
+    id,
     createdAt: serverTimestamp(),
     createdBy: user?.uid || 'system',
     updatedAt: serverTimestamp(),

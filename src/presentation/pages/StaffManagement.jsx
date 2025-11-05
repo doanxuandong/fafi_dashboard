@@ -20,6 +20,7 @@ import { listProjects } from '../../infrastructure/repositories/projectsReposito
 import { listOrgs } from '../../infrastructure/repositories/orgsRepository';
 import { listAcls } from '../../infrastructure/repositories/aclsRepository';
 import { useAuth } from '../contexts/AuthContext';
+import { useMembers } from '../hooks/useMembers';
 import { toast } from '../components/common/Toaster';
 import { confirm } from '../components/common/ConfirmDialog';
 
@@ -65,6 +66,10 @@ export default function StaffManagement() {
   const [filterRole, setFilterRole] = useState('');
   const [filterEmail, setFilterEmail] = useState('');
   const [form, setForm] = useState({ displayName: '', email: '', phoneNumber: '', role: 'admin', password: '' });
+  const [userProjectCount, setUserProjectCount] = useState({}); // {userId: count}
+
+  // Members helper (to get projects by user accurately from projects_members)
+  const { getUserProjects } = useMembers();
 
   useEffect(() => {
     loadData();
@@ -82,6 +87,20 @@ export default function StaffManagement() {
       setStaff(staffList);
       setProjects(projectsList);
       setOrgs(orgList);
+
+      // Build project count from projects_members (ground truth)
+      const counts = {};
+      await Promise.all(
+        (staffList || []).map(async (u) => {
+          try {
+            const ups = await getUserProjects(u.id);
+            counts[u.id] = Array.isArray(ups) ? ups.length : (Array.isArray(u.projectIds) ? u.projectIds.length : 0);
+          } catch {
+            counts[u.id] = Array.isArray(u.projectIds) ? u.projectIds.length : 0;
+          }
+        })
+      );
+      setUserProjectCount(counts);
       // Derive unique roles from ACLs, scoped by accessibleProjects
       const filterByAccess = (arr) => {
         if (accessibleProjects === '*') return arr || [];
@@ -110,23 +129,27 @@ export default function StaffManagement() {
     try {
       const isUpdating = !!editingStaff;
       if (isUpdating) {
+        // ✅ Cần truyền email để keywords được update đúng
         await updateUser(editingStaff.id, {
           displayName: form.displayName,
-          phoneNumber: form.phoneNumber,
+          email: form.email || editingStaff.email, // Giữ email cũ nếu không có
+          phoneNumber: form.phoneNumber || null, // Đảm bảo null thay vì empty string
           role: form.role,
         }, currentUser);
+        toast.success('Đã cập nhật nhân viên thành công!');
       } else {
         await createUser({
           ...form,
         }, currentUser);
+        toast.success('Đã tạo nhân viên thành công!');
       }
       setShowAddStaff(false);
       setEditingStaff(null);
       setForm({ displayName: '', email: '', phoneNumber: '', role: roles[0] || 'admin', password: '' });
       await loadData();
-      toast.success(isUpdating ? 'Đã cập nhật nhân viên thành công!' : 'Đã tạo nhân viên thành công!');
     } catch (error) {
-      toast.error('Lỗi lưu nhân viên: ' + error.message);
+      console.error('Error saving staff:', error);
+      toast.error('Lỗi lưu nhân viên: ' + (error.message || 'Có lỗi xảy ra. Vui lòng thử lại.'));
     }
   };
 
@@ -456,7 +479,7 @@ export default function StaffManagement() {
                             </span>
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                            {s.projectIds?.length || 0} dự án
+                            {(userProjectCount[s.id] ?? (s.projectIds?.length || 0))} dự án
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap">
                             <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${s.enable !== false ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>

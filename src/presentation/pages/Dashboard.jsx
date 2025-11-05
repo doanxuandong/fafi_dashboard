@@ -18,9 +18,9 @@ import { useProjects } from '../hooks/useProjects';
 import { useLocations } from '../hooks/useLocations';
 import { useSales } from '../hooks/useSales';
 // ❌ TODO: Các phần này vẫn import trực tiếp, sẽ refactor sau nếu cần
-import { listSchedules } from '../../infrastructure/repositories/schedulesRepository';
-import { listStockAssets } from '../../infrastructure/repositories/stockAssetsRepository';
-import { listStockBalances } from '../../infrastructure/repositories/stockBalancesRepository';
+import { useSchedules } from '../hooks/useSchedules';
+import { useStockAssets } from '../hooks/useStockAssets';
+import { useStockBalances } from '../hooks/useStockBalances';
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, BarChart, Bar, PieChart, Pie, Cell, Legend } from 'recharts';
 
 export default function Dashboard() {
@@ -29,6 +29,9 @@ export default function Dashboard() {
   const { projects, loading: projectsLoading } = useProjects({ accessibleProjectIds: accessibleProjects });
   const { locations, loading: locationsLoading } = useLocations({ accessibleProjectIds: accessibleProjects });
   const { sales, loading: salesLoading } = useSales({ accessibleProjectIds: accessibleProjects });
+  const { schedules, loading: schedulesLoading } = useSchedules({ accessibleProjectIds: accessibleProjects });
+  const { assets, loading: assetsLoading } = useStockAssets({ accessibleProjectIds: accessibleProjects });
+  const { balances, loading: balancesLoading } = useStockBalances({ accessibleProjectIds: accessibleProjects });
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState({
     totalProjects: 0,
@@ -73,26 +76,12 @@ export default function Dashboard() {
   const loadDashboardData = async () => {
     setLoading(true);
     try {
-      // ✅ Projects, Locations, và Sales được load tự động bởi hooks
-      // Chỉ cần load các phần khác
-      const [schedules, assets, balances] = await Promise.all([
-        listSchedules(),
-        listStockAssets(),
-        listStockBalances()
-      ]);
-
-      const filterByAccess = (arr) => {
-        if (accessibleProjects === '*') return arr || [];
-        const setIds = new Set(accessibleProjects || []);
-        return (arr || []).filter(item => !item.projectId || setIds.has(item.projectId));
-      };
-
-      // ✅ Locations và Sales đã được filter trong hooks
+      // ✅ Tất cả data đã được load tự động bởi hooks và đã được filter theo accessibleProjects
       const scopedLocations = locations; // ✅ Đã được filter trong hook
-      const scopedSchedules = filterByAccess(schedules);
+      const scopedSchedules = schedules; // ✅ Đã được filter trong hook
       const scopedSales = sales; // ✅ Đã được filter trong hook
-      const scopedAssets = filterByAccess(assets);
-      const scopedBalances = filterByAccess(balances);
+      const scopedAssets = assets; // ✅ Đã được filter trong hook
+      const scopedBalances = balances; // ✅ Đã được filter trong hook
 
       // Tính toán thống kê
       const today = new Date();
@@ -208,7 +197,7 @@ export default function Dashboard() {
 
   useEffect(() => {
     loadDashboardData();
-  }, [accessibleProjects, projects, locations, sales]); // ✅ Reload khi data thay đổi
+  }, [accessibleProjects, projects, locations, sales, schedules, assets, balances]); // ✅ Reload khi data thay đổi
 
   const statsData = [
     {
@@ -241,7 +230,7 @@ export default function Dashboard() {
     },
   ];
 
-  if (loading || projectsLoading || locationsLoading || salesLoading) {
+  if (loading || projectsLoading || locationsLoading || salesLoading || schedulesLoading || assetsLoading || balancesLoading) {
     return (
       <div className="space-y-6 p-4">
         <div>

@@ -41,11 +41,18 @@ function generateKeywords(text) {
 }
 
 // List all stock balances
-export async function listStockBalances() {
+export async function listStockBalances({ accessibleProjectIds = null } = {}) {
   const colRef = collection(db, COLLECTION);
   const q = query(colRef, orderBy('updatedAt', 'desc'));
   const snapshot = await getDocs(q);
-  return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+  let items = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+  
+  // Filter by accessible projects if provided
+  if (accessibleProjectIds !== null && accessibleProjectIds !== '*') {
+    items = items.filter(item => accessibleProjectIds.includes(item.projectId));
+  }
+  
+  return items;
 }
 
 // List stock balances by project

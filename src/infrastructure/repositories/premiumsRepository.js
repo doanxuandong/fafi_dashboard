@@ -3,7 +3,7 @@ import { db } from '../services/firebase';
 
 const COLLECTION = 'premiums';
 
-export async function listPremiums({ projectId, search = '' } = {}) {
+export async function listPremiums({ projectId, search = '', accessibleProjectIds = null } = {}) {
   const colRef = collection(db, COLLECTION);
   let q = query(colRef);
   
@@ -12,7 +12,7 @@ export async function listPremiums({ projectId, search = '' } = {}) {
   }
   
   const snapshot = await getDocs(q);
-  const items = snapshot.docs.map(d => {
+  let items = snapshot.docs.map(d => {
     const data = d.data();
     return { 
       id: d.id, 
@@ -26,6 +26,11 @@ export async function listPremiums({ projectId, search = '' } = {}) {
       available: data.available !== undefined ? data.available : true,
     };
   });
+  
+  // Filter by accessible projects if provided
+  if (accessibleProjectIds !== null && accessibleProjectIds !== '*') {
+    items = items.filter(item => accessibleProjectIds.includes(item.projectId));
+  }
   
   // Sort by name
   items.sort((a, b) => (a.name || '').localeCompare(b.name || ''));

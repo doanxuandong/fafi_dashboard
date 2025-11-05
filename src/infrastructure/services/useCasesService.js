@@ -1,4 +1,4 @@
-/**
+    /**
  * Service để khởi tạo Use Cases với Infrastructure dependencies
  * Đây là nơi kết nối Domain Layer với Infrastructure Layer
  */
@@ -262,7 +262,9 @@ export const deleteScheduleUseCase = new DeleteScheduleUseCase(schedulesReposito
 // Create adapter cho StockAssets Repository
 class StockAssetsRepositoryAdapter {
   async listStockAssets(filters = {}) {
-    return await stockAssetsRepo.listStockAssets(filters);
+    return await stockAssetsRepo.listStockAssets({
+      accessibleProjectIds: filters.accessibleProjectIds,
+    });
   }
 
   async getStockAssetById(id) {
@@ -287,7 +289,9 @@ class StockAssetsRepositoryAdapter {
 // Create adapter cho StockBalances Repository
 class StockBalancesRepositoryAdapter {
   async listStockBalances(filters = {}) {
-    return await stockBalancesRepo.listStockBalances(filters);
+    return await stockBalancesRepo.listStockBalances({
+      accessibleProjectIds: filters.accessibleProjectIds,
+    });
   }
 
   async getStockBalanceById(id) {
@@ -353,7 +357,11 @@ class ProductsRepositoryAdapter {
 // Create adapter cho Premiums Repository
 class PremiumsRepositoryAdapter {
   async listPremiums(filters = {}) {
-    return await premiumsRepo.listPremiums(filters);
+    return await premiumsRepo.listPremiums({
+      projectId: filters.projectId,
+      search: filters.search,
+      accessibleProjectIds: filters.accessibleProjectIds,
+    });
   }
 
   async getPremiumById(id) {
@@ -471,6 +479,14 @@ class MembersRepositoryAdapter {
 
   async getUserProjects(userId) {
     return await membersRepo.getUserProjects(userId);
+  }
+
+  async removeUserFromProject(userId, projectId) {
+    return await membersRepo.removeUserFromProject(userId, projectId);
+  }
+
+  async removeUserFromOrg(userId, orgId) {
+    return await membersRepo.removeUserFromOrg(userId, orgId);
   }
 }
 

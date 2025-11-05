@@ -36,7 +36,7 @@ export const ConfirmDialog = () => {
   if (!state.isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+    <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black bg-opacity-50">
       <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4 transform transition-all animate-in fade-in">
         <div className="p-6">
           <div className="flex items-start">
@@ -75,13 +75,38 @@ export const ConfirmDialog = () => {
 export const confirm = (message, options = {}) => {
   return new Promise((resolve) => {
     const title = options.title || 'Xác nhận';
-    openDialog({
-      isOpen: true,
-      title,
-      message,
-      onConfirm: () => resolve(true),
-      onCancel: () => resolve(false)
-    });
+
+    const show = () => {
+      openDialog({
+        isOpen: true,
+        title,
+        message,
+        onConfirm: () => resolve(true),
+        onCancel: () => resolve(false)
+      });
+    };
+
+    // Nếu ConfirmDialog chưa mount xong, đợi cho tới khi openDialog sẵn sàng
+    if (typeof openDialog === 'function') {
+      show();
+      return;
+    }
+
+    const intervalId = setInterval(() => {
+      if (typeof openDialog === 'function') {
+        clearInterval(intervalId);
+        show();
+      }
+    }, 50);
+
+    // Fallback sau 2 giây: dùng window.confirm để tránh kẹt UI
+    setTimeout(() => {
+      if (typeof openDialog !== 'function') {
+        clearInterval(intervalId);
+        const ok = window.confirm(message || title);
+        resolve(!!ok);
+      }
+    }, 2000);
   });
 };
 

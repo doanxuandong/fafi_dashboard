@@ -3,6 +3,7 @@ import { CheckCircle, XCircle, AlertCircle, Info, X } from 'lucide-react';
 
 const toasts = [];
 let listeners = [];
+let toastCounter = 0; // Counter để đảm bảo unique ID
 
 const notify = (toast) => {
   toasts.push(toast);
@@ -23,18 +24,24 @@ const removeToast = (id) => {
   }
 };
 
+// Generate unique ID: timestamp + counter + random
+const generateUniqueId = () => {
+  toastCounter++;
+  return `${Date.now()}-${toastCounter}-${Math.random().toString(36).substr(2, 9)}`;
+};
+
 export const toast = {
   success: (message, options) => {
-    notify({ id: Date.now(), type: 'success', message, ...options });
+    notify({ id: generateUniqueId(), type: 'success', message, ...options });
   },
   error: (message, options) => {
-    notify({ id: Date.now(), type: 'error', message, ...options });
+    notify({ id: generateUniqueId(), type: 'error', message, ...options });
   },
   warning: (message, options) => {
-    notify({ id: Date.now(), type: 'warning', message, ...options });
+    notify({ id: generateUniqueId(), type: 'warning', message, ...options });
   },
   info: (message, options) => {
-    notify({ id: Date.now(), type: 'info', message, ...options });
+    notify({ id: generateUniqueId(), type: 'info', message, ...options });
   }
 };
 

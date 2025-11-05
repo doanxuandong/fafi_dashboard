@@ -44,6 +44,8 @@ export default function Projects() {
     getOrgMembers,
     addUserToProject,
     addUserToOrg,
+    removeUserFromProject,
+    removeUserFromOrg,
     getUsersByIds,
     getUserOrgs,
     getUserProjects
@@ -1006,6 +1008,43 @@ export default function Projects() {
                               <div className="font-medium text-sm">{member.user?.displayName || 'Unknown'}</div>
                               <div className="text-xs text-gray-500">{member.user?.email || '-'}</div>
                             </div>
+                            <button
+                              onClick={async () => {
+                                const confirmed = await confirm(`Xóa ${member.user?.displayName || 'thành viên này'} khỏi ${membersModalType === 'org' ? 'tổ chức' : 'dự án'}?`);
+                                if (!confirmed) return;
+                                
+                                try {
+                                  if (membersModalType === 'org') {
+                                    const orgId = member.orgId || (selectedOrgMembers[0]?.orgId);
+                                    if (orgId) {
+                                      await removeUserFromOrg(member.userId, orgId);
+                                      // Reload members
+                                      const members = await getOrgMembers(orgId);
+                                      const userIds = members.map(m => m.userId);
+                                      const users = await getUsersByIds(userIds);
+                                      setSelectedOrgMembers(members.map(m => ({ ...m, user: users.find(u => u.id === m.userId) })));
+                                    }
+                                  } else {
+                                    const projectId = member.projectId || (selectedProjectMembers[0]?.projectId);
+                                    if (projectId) {
+                                      await removeUserFromProject(member.userId, projectId);
+                                      // Reload members
+                                      const members = await getProjectMembers(projectId);
+                                      const userIds = members.map(m => m.userId);
+                                      const users = await getUsersByIds(userIds);
+                                      setSelectedProjectMembers(members.map(m => ({ ...m, user: users.find(u => u.id === m.userId) })));
+                                    }
+                                  }
+                                  await load();
+                                } catch (error) {
+                                  console.error('Error removing member:', error);
+                                }
+                              }}
+                              className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                              title="Xóa thành viên"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
                           </div>
                         ))}
                       </div>
@@ -1046,6 +1085,43 @@ export default function Projects() {
                               <div className="font-medium text-sm">{member.user?.displayName || 'Unknown'}</div>
                               <div className="text-xs text-gray-500">{member.user?.email || '-'}</div>
                             </div>
+                            <button
+                              onClick={async () => {
+                                const confirmed = await confirm(`Xóa ${member.user?.displayName || 'thành viên này'} khỏi ${membersModalType === 'org' ? 'tổ chức' : 'dự án'}?`);
+                                if (!confirmed) return;
+                                
+                                try {
+                                  if (membersModalType === 'org') {
+                                    const orgId = member.orgId || (selectedOrgMembers[0]?.orgId);
+                                    if (orgId) {
+                                      await removeUserFromOrg(member.userId, orgId);
+                                      // Reload members
+                                      const members = await getOrgMembers(orgId);
+                                      const userIds = members.map(m => m.userId);
+                                      const users = await getUsersByIds(userIds);
+                                      setSelectedOrgMembers(members.map(m => ({ ...m, user: users.find(u => u.id === m.userId) })));
+                                    }
+                                  } else {
+                                    const projectId = member.projectId || (selectedProjectMembers[0]?.projectId);
+                                    if (projectId) {
+                                      await removeUserFromProject(member.userId, projectId);
+                                      // Reload members
+                                      const members = await getProjectMembers(projectId);
+                                      const userIds = members.map(m => m.userId);
+                                      const users = await getUsersByIds(userIds);
+                                      setSelectedProjectMembers(members.map(m => ({ ...m, user: users.find(u => u.id === m.userId) })));
+                                    }
+                                  }
+                                  await load();
+                                } catch (error) {
+                                  console.error('Error removing member:', error);
+                                }
+                              }}
+                              className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                              title="Xóa thành viên"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
                           </div>
                         ))}
                       </div>
