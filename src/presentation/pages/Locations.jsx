@@ -146,7 +146,7 @@ export default function Locations() {
     setLoading(true);
     // ✅ Locations, Orgs, và Projects được load tự động bởi hooks
     // Chỉ cần load users
-    const usersList = await listUsers();
+    const usersList = await listUsers({ accessibleProjectIds: accessibleProjects });
     setAllUsers(usersList);
     setLoading(false);
   };

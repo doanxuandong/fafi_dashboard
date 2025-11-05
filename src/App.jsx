@@ -39,19 +39,19 @@ function App() {
             </ProtectedRoute>
           }>
             <Route index element={<Dashboard />} />
-            <Route path="projects" element={<Projects />} />
-            <Route path="locations" element={<Locations />} />
-            <Route path="schedules" element={<Schedules />} />
-            <Route path="sales" element={<Sales />} />
-            <Route path="stock-management" element={<StockManagement />} />
+            <Route path="projects" element={<ProtectedRoute requiredResource="project"><Projects /></ProtectedRoute>} />
+            <Route path="locations" element={<ProtectedRoute requiredResource="location"><Locations /></ProtectedRoute>} />
+            <Route path="schedules" element={<ProtectedRoute requiredResource="schedule"><Schedules /></ProtectedRoute>} />
+            <Route path="sales" element={<ProtectedRoute requiredResource="sale"><Sales /></ProtectedRoute>} />
+            <Route path="stock-management" element={<ProtectedRoute requiredResource="stock"><StockManagement /></ProtectedRoute>} />
             <Route path="gps-tracking" element={<GPSTracking />} />
-            <Route path="staff-management" element={<StaffManagement />} />
+            <Route path="staff-management" element={<ProtectedRoute requiredResource="staff"><StaffManagement /></ProtectedRoute>} />
             <Route path="shift-management" element={<ShiftManagement />} />
-            <Route path="inventory" element={<Inventory />} />
+            <Route path="inventory" element={<ProtectedRoute requiredResource="inventory"><Inventory /></ProtectedRoute>} />
             <Route path="sales-scheme" element={<SalesScheme />} />
-            <Route path="reports" element={<Reports />} />
-            <Route path="settings" element={<Settings />} />
-            <Route path="permissions" element={<Permissions />} />
+            <Route path="reports" element={<ProtectedRoute requiredResource="report"><Reports /></ProtectedRoute>} />
+            <Route path="settings" element={<ProtectedRoute requiredResource="settings"><Settings /></ProtectedRoute>} />
+            <Route path="permissions" element={<ProtectedRoute requiredResource="permissions"><Permissions /></ProtectedRoute>} />
           </Route>
           
           {/* 404 - not found */}

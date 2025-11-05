@@ -45,6 +45,8 @@ export default function Dashboard() {
   const [salesTrend, setSalesTrend] = useState([]); // last 7 days amounts
   const [locationsByProject, setLocationsByProject] = useState([]); // [{name,count}]
   const [stockDonut, setStockDonut] = useState({ ok: 0, low: 0 });
+  const [locationStatusDonut, setLocationStatusDonut] = useState({ accepted: 0, sitecheck: 0, closed: 0, denied: 0 });
+  const [scheduleRateDonut, setScheduleRateDonut] = useState({ completed: 0, inProgress: 0, planned: 0, missed: 0 });
 
   const formatDateTime = (timestamp) => {
     if (!timestamp) return '-';
@@ -168,18 +170,29 @@ export default function Dashboard() {
         const d = new Date(today2); d.setDate(d.getDate()-(6-i)); return d;
       });
       const byDay = new Map(last7.map(d=>[dayKey(d),0]));
-      const totalAmount = (buyProducts=[]) => (buyProducts||[]).reduce((s,p)=> s + (Number(p.unitPrice||0)*Number(p.unitQty||0)),0);
+      const calcSaleTotal = (s) => {
+        // Ưu tiên các field tổng nếu có
+        const direct = Number(s.totalAmount || s.total || s.amount || 0);
+        if (direct > 0) return direct;
+        // Fallback từ mảng sản phẩm
+        const arr = s.buyProducts || s.products || s.items || [];
+        return (arr||[]).reduce((sum,p)=> sum + (Number(p.unitPrice||p.price||0) * Number(p.unitQty||p.qty||1)), 0);
+      };
       (scopedSales||[]).forEach(sale=>{
         let d; if (sale.createdAt?.seconds) d = new Date(sale.createdAt.seconds*1000); else if (sale.createdAt?.toDate) d = sale.createdAt.toDate(); else if (sale.createdAt) d = new Date(sale.createdAt); else d = null;
-        if (!d) return; const k = dayKey(d); if (byDay.has(k)) byDay.set(k, byDay.get(k)+ totalAmount(sale.buyProducts));
+        if (!d) return; const k = dayKey(d); if (byDay.has(k)) byDay.set(k, (byDay.get(k)||0) + calcSaleTotal(sale));
       });
       setSalesTrend(last7.map(d=>({ label: d.getDate(), value: byDay.get(dayKey(d))||0 })));
 
       // Locations by project (top 5)
       const projCount = new Map();
-      (scopedLocations||[]).forEach(l=>{ if (!l.projectId) return; projCount.set(l.projectId, (projCount.get(l.projectId)||0)+1); });
-      const nameById = new Map(projects.map(p=>[p.id, p.name])); // ✅ Lấy từ hook
-      const locByProjArr = Array.from(projCount.entries()).map(([id,c])=>({ name: nameById.get(id)||'Khác', count:c }))
+      (scopedLocations||[]).forEach(l=>{ 
+        const pid = l.projectId != null ? String(l.projectId) : null; 
+        if (!pid) return; 
+        projCount.set(pid, (projCount.get(pid)||0)+1); 
+      });
+      const nameById = new Map(projects.map(p=>[String(p.id), p.name])); // ✅ Lấy từ hook, chuẩn hóa string
+      const locByProjArr = Array.from(projCount.entries()).map(([id,c])=>({ name: nameById.get(id) || lProjectName(scopedLocations, id) || 'Khác', count:c }))
         .sort((a,b)=>b.count-a.count).slice(0,5);
       setLocationsByProject(locByProjArr);
 
@@ -187,6 +200,21 @@ export default function Dashboard() {
       const low = (scopedBalances||[]).filter(b => Number(b.unitQty) < 10).length;
       const ok = (scopedBalances||[]).length - low;
       setStockDonut({ ok: Math.max(ok,0), low: Math.max(low,0) });
+
+      // Location status donut
+      const ls = { accepted: 0, sitecheck: 0, closed: 0, denied: 0 };
+      (scopedLocations||[]).forEach(l => { const s = (l.status||'').toLowerCase(); if (ls[s] !== undefined) ls[s]++; });
+      setLocationStatusDonut(ls);
+
+      // Schedule completion donut
+      const ss = { completed: 0, inProgress: 0, planned: 0, missed: 0 };
+      (scopedSchedules||[]).forEach(s => { const st = (s.status||'').toLowerCase();
+        if (st.includes('complete')) ss.completed++;
+        else if (st.includes('progress')) ss.inProgress++;
+        else if (st.includes('miss')) ss.missed++;
+        else ss.planned++;
+      });
+      setScheduleRateDonut(ss);
 
     } catch (error) {
       console.error('Error loading dashboard data:', error);
@@ -354,19 +382,32 @@ export default function Dashboard() {
         </div>
         <div className="bg-white shadow rounded-lg">
           <div className="px-4 py-5 sm:p-6">
-            <h3 className="text-lg leading-6 font-medium text-gray-900 mb-2">Tồn kho theo trạng thái</h3>
-            <MiniDonutChart ok={stockDonut.ok} low={stockDonut.low} />
+            <h3 className="text-lg leading-6 font-medium text-gray-900 mb-2">Trạng thái địa điểm</h3>
+            <MiniDonutGeneric data={[{name:'Accepted',value:locationStatusDonut.accepted,color:'#10b981'},{name:'Sitecheck',value:locationStatusDonut.sitecheck,color:'#60a5fa'},{name:'Closed',value:locationStatusDonut.closed,color:'#6b7280'},{name:'Denied',value:locationStatusDonut.denied,color:'#ef4444'}]} />
           </div>
         </div>
         <div className="bg-white shadow rounded-lg">
           <div className="px-4 py-5 sm:p-6">
-            <h3 className="text-lg leading-6 font-medium text-gray-900 mb-2">Giao dịch hôm nay</h3>
-            <p className="text-3xl font-semibold">{stats.totalSales}</p>
-            <p className="text-gray-500 text-sm">Tổng số giao dịch trong phạm vi dự án của bạn</p>
+            <h3 className="text-lg leading-6 font-medium text-gray-900 mb-2">Tỷ lệ hoàn thành lịch</h3>
+            <MiniDonutGeneric data={[{name:'Hoàn thành',value:scheduleRateDonut.completed,color:'#22c55e'},{name:'Đang làm',value:scheduleRateDonut.inProgress,color:'#3b82f6'},{name:'Kế hoạch',value:scheduleRateDonut.planned,color:'#a3a3a3'},{name:'Missed',value:scheduleRateDonut.missed,color:'#ef4444'}]} />
           </div>
         </div>
       </div>
     </div>
+  );
+}
+
+function lProjectName(locations, projectId) {
+  const pid = String(projectId);
+  const loc = (locations || []).find(l => String(l.projectId) === pid);
+  if (!loc) return null;
+  return (
+    loc.projectName ||
+    loc.project_name ||
+    loc.projectTitle ||
+    loc.project_title ||
+    (loc.project && (loc.project.name || loc.project.projectName)) ||
+    null
   );
 }
 
@@ -417,6 +458,25 @@ function MiniDonutChart({ ok = 0, low = 0, size = 180 }) {
           <Pie data={data} dataKey="value" nameKey="name" innerRadius={50} outerRadius={70} paddingAngle={2}>
             {data.map((entry, index) => (
               <Cell key={`cell-${index}`} fill={entry.color} />
+            ))}
+          </Pie>
+          <Legend verticalAlign="middle" align="right" layout="vertical" />
+          <Tooltip />
+        </PieChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+// Generic donut chart for multiple segments
+function MiniDonutGeneric({ data = [], size = 180 }) {
+  return (
+    <div style={{ width: '100%', height: size }}>
+      <ResponsiveContainer>
+        <PieChart>
+          <Pie data={data} dataKey="value" nameKey="name" innerRadius={50} outerRadius={70} paddingAngle={2}>
+            {data.map((entry, index) => (
+              <Cell key={`gcell-${index}`} fill={entry.color || '#6366f1'} />
             ))}
           </Pie>
           <Legend verticalAlign="middle" align="right" layout="vertical" />

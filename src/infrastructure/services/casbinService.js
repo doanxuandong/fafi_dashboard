@@ -112,6 +112,51 @@ export async function hasPermission(userId, resource, action, projectId) {
 }
 
 /**
+ * Web-only RBAC with scope enforcement (org/project)
+ * Input: user object (already in memory) to avoid extra reads when possible
+ */
+export async function hasPermissionWeb({ user, userId, resource, action = 'read', projectId = null, orgId = null }) {
+  try {
+    // Load user if not provided
+    const u = user || (await getUserById(userId));
+    if (!u) return false;
+
+    // Root bypass
+    if ((u.email || '') === 'root@fafi.app' || u.role === 'root') return true;
+
+    // Role permission check (hardcoded policy)
+    const role = u.role || 'staff';
+    const roleAllowed = hasPermissionByRole(role, resource, action);
+    if (!roleAllowed) return false;
+
+    // Scope enforcement
+    const userProjectIds = Array.isArray(u.projectIds) ? u.projectIds : [];
+    const userOrgIds = Array.isArray(u.orgIds) ? u.orgIds : [];
+
+    // If projectId provided, must be within user's projects
+    if (projectId && projectId !== '*' && !userProjectIds.includes(projectId)) {
+      return false;
+    }
+
+    // If orgId provided, must be within user's orgs
+    if (orgId && orgId !== '*' && !userOrgIds.includes(orgId)) {
+      return false;
+    }
+
+    // If action requires scope but none provided, deny for non-root
+    const actionNeedsScope = action === 'create' || action === 'edit' || action === 'delete';
+    if (actionNeedsScope && !projectId && !orgId) {
+      return false;
+    }
+
+    return true;
+  } catch (error) {
+    console.error('Error hasPermissionWeb:', error);
+    return false;
+  }
+}
+
+/**
  * Get accessible project IDs for a user
  * @param {string} userId - User ID
  * @returns {string[]} - Array of project IDs

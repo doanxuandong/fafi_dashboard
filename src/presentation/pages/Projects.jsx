@@ -16,7 +16,7 @@ import { Pagination } from 'antd';
 const defaultProjectForm = { name: '', description: '', orgId: '', tags: [] };
 
 export default function Projects() {
-  const { currentUser, accessibleProjects, isRoot } = useAuth();
+  const { currentUser, accessibleProjects, isRoot, userProfile } = useAuth();
   const [isRootFlag, setIsRootFlag] = useState(false);
   
   // ✅ Clean Architecture: Sử dụng Custom Hooks
@@ -63,6 +63,7 @@ export default function Projects() {
   const [orgMembers, setOrgMembers] = useState({});
   const [projectLocations, setProjectLocations] = useState({}); // {projectId: [locationId1, locationId2]}
   const [allUsers, setAllUsers] = useState([]);
+  const [userOrgIds, setUserOrgIds] = useState([]);
   
   // UI states
   const [activeTab, setActiveTab] = useState('orgs');
@@ -107,11 +108,41 @@ export default function Projects() {
     return items.filter(i => (i.keywords || []).some(k => k.includes(s)) || (i.name || '').toLowerCase().includes(s));
   }, [items, search]);
 
+  // Load orgs that the current user belongs to (from orgs_members)
+  useEffect(() => {
+    let active = true;
+    async function loadUserOrgs() {
+      if (!currentUser) return;
+      try {
+        const list = await getUserOrgs(currentUser.uid);
+        const ids = (list || []).map(x => x.orgId || x.id).filter(Boolean);
+        if (active) setUserOrgIds(ids);
+      } catch (e) {
+        console.warn('Failed to load user orgs:', e);
+        if (active) setUserOrgIds([]);
+      }
+    }
+    loadUserOrgs();
+    return () => { active = false; };
+  }, [currentUser, getUserOrgs]);
+
+  // Only show orgs the current user can access:
+  // - root: all
+  // - others: orgs that contain projects in the user's accessible set
+  const scopedOrgs = useMemo(() => {
+    if (accessibleProjects === '*' || isRootFlag) return orgs;
+    const projectOrgSet = new Set((items || []).map(p => p.orgId).filter(Boolean));
+    const userOrgSet = new Set((userOrgIds || []));
+    const allowed = new Set([...projectOrgSet, ...userOrgSet]);
+    return (orgs || []).filter(o => allowed.has(o.id));
+  }, [orgs, items, accessibleProjects, isRootFlag, userOrgIds]);
+
   const filteredOrgs = useMemo(() => {
-    if (!search) return orgs;
+    const base = scopedOrgs;
+    if (!search) return base;
     const s = search.toLowerCase();
-    return orgs.filter(o => (o.keywords || []).some(k => k.includes(s)) || (o.name || '').toLowerCase().includes(s));
-  }, [orgs, search]);
+    return base.filter(o => (o.keywords || []).some(k => k.includes(s)) || (o.name || '').toLowerCase().includes(s));
+  }, [scopedOrgs, search]);
 
   // Extract unique provinces and districts for location modal
   const { provinces, districts } = useMemo(() => {
@@ -172,7 +203,7 @@ export default function Projects() {
     // ✅ Projects và Orgs được load tự động bởi hooks
     // Chỉ cần load các phần khác
     const [usersList, locationsList] = await Promise.all([
-      listUsers(),
+      listUsers({ accessibleProjectIds: accessibleProjects }),
       listLocations({}) // Load ALL locations, not filtered by accessible projects
     ]);
     setAllUsers(usersList);
@@ -464,7 +495,7 @@ export default function Projects() {
                       </tr>
                     </thead>
                     <tbody>
-                      {orgs.map((org) => (
+                      {filteredOrgs.map((org) => (
                         <tr key={org.id} className="border-t hover:bg-gray-50">
                           <td className="px-6 py-4">
                             {org.photoUrls && org.photoUrls.length > 0 ? (
@@ -749,7 +780,7 @@ export default function Projects() {
                     required
                   >
                     <option value="">Chọn công ty</option>
-                    {orgs.map(org => (
+                    {filteredOrgs.map(org => (
                       <option key={org.id} value={org.id}>{org.name}</option>
                     ))}
                   </select>
@@ -897,7 +928,22 @@ export default function Projects() {
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
-                  {allUsers.map((user) => {
+                  {(() => {
+                    const isAll = accessibleProjects === '*';
+                    const apSet = new Set(isAll ? [] : (accessibleProjects || []));
+                    const visible = (allUsers || []).filter(u => {
+                      const uOrgs = userMemberships[u.id]?.orgs || [];
+                      const uProjects = userMemberships[u.id]?.projects || [];
+                      if (selectedOrgForUser) {
+                        return uOrgs.includes(selectedOrgForUser.id) || uProjects.some(pid => (items.find(p => p.id === pid)?.orgId) === selectedOrgForUser.id);
+                      }
+                      if (selectedProjectForUser) {
+                        return uProjects.includes(selectedProjectForUser.id);
+                      }
+                      if (isAll) return true;
+                      return uProjects.some(pid => apSet.has(pid));
+                    });
+                    return visible.map((user) => {
                     // Get user's orgs and projects from memberships (real-time from orgs_members and projects_members)
                     const userOrgs = userMemberships[user.id]?.orgs || [];
                     const userProjects = userMemberships[user.id]?.projects || [];
@@ -937,7 +983,8 @@ export default function Projects() {
                         </td>
                       </tr>
                     );
-                  })}
+                  });
+                  })()}
                   {allUsers.length === 0 && (
                     <tr>
                       <td colSpan="6" className="px-4 py-8 text-center text-gray-500">

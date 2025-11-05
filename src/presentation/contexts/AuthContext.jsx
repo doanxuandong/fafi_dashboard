@@ -7,6 +7,7 @@ import {
 import { auth } from '../../infrastructure/services/firebase';
 import { getUserById } from '../../infrastructure/repositories/usersRepository';
 import { hasPermission as checkAclPermission } from '../../infrastructure/services/permissionService';
+import { hasPermissionWeb as casbinHasPermissionWeb } from '../../infrastructure/services/casbinService';
 
 const AuthContext = createContext({});
 
@@ -41,6 +42,24 @@ export const AuthProvider = ({ children }) => {
       });
     } catch (e) {
       console.error('ACL hasPermission error:', e);
+      return false;
+    }
+  };
+
+  // Web-only RBAC (hardcoded policies + scope by user's orgs/projects)
+  const hasWebPermission = async (resource, action = 'read', projectId = null, orgId = null) => {
+    if (!currentUser) return false;
+    try {
+      return await casbinHasPermissionWeb({
+        user: userProfile,
+        userId: currentUser.uid,
+        resource,
+        action,
+        projectId,
+        orgId: orgId || userProfile?.lastOrgId || (userProfile?.orgIds || [])[0] || null,
+      });
+    } catch (e) {
+      console.error('Web RBAC hasPermission error:', e);
       return false;
     }
   };
@@ -112,6 +131,7 @@ export const AuthProvider = ({ children }) => {
     isAdminAppUser,
     authLoading: loading,
     hasPermission,
+    hasWebPermission,
     isRoot,
     hasAccessToAllProjects,
     login,

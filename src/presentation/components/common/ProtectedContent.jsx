@@ -1,5 +1,5 @@
-import React from 'react';
-import { usePermission } from '../../hooks/usePermission';
+import React, { useEffect, useState } from 'react';
+import { useAuth } from '../../contexts/AuthContext';
 
 /**
  * Component to protect content based on permissions
@@ -17,7 +17,21 @@ export default function ProtectedContent({
   fallback = null,
   hide = false 
 }) {
-  const { hasAccess, loading } = usePermission({ resource, action, projectId, orgId });
+  const { hasWebPermission } = useAuth();
+  const [loading, setLoading] = useState(true);
+  const [hasAccess, setHasAccess] = useState(false);
+  useEffect(() => {
+    let active = true;
+    async function check() {
+      setLoading(true);
+      const ok = await hasWebPermission(resource, action, projectId, orgId);
+      if (!active) return;
+      setHasAccess(!!ok);
+      setLoading(false);
+    }
+    check();
+    return () => { active = false; };
+  }, [resource, action, projectId, orgId, hasWebPermission]);
   
   if (loading) {
     return null;
