@@ -291,8 +291,22 @@ export default function Locations() {
       const logs = [];
       let success = 0, failed = 0, duplicates = 0;
       
-      // Create a set of existing location IDs for duplicate detection
+      // Helper: normalize address for comparison (trim, lowercase, remove extra spaces)
+      const normalizeAddress = (addr) => {
+        if (!addr) return '';
+        return String(addr).trim().toLowerCase().replace(/\s+/g, ' ');
+      };
+      
+      // Create sets for duplicate detection
       const existingLocationIds = new Set(items.map(loc => loc.id));
+      const existingAddresses = new Set(
+        items
+          .map(loc => {
+            const addr = loc.locationMark?.address || loc.locationMark?.formattedAddress || '';
+            return normalizeAddress(addr);
+          })
+          .filter(addr => addr !== '') // Only include non-empty addresses
+      );
       
       // Helper: remove undefined recursively (Firestore cấm undefined)
       const removeUndefinedDeep = (obj) => {
@@ -351,11 +365,20 @@ export default function Locations() {
           if (!projectId || !allowed.has(projectId)) { failed++; logs.push(`Bỏ qua ${name}: dự án không hợp lệ/không trong phạm vi`); continue; }
         }
 
-        // Check for duplicates using projectId_code format
+        // Check for duplicates: by ID (projectId_code) or by address
         const expectedId = projectId && code ? `${projectId}_${code}` : null;
         if (expectedId && existingLocationIds.has(expectedId)) {
           duplicates++;
-          logs.push(`⚠️ Trùng lặp: ${name} (${code}) - Địa điểm đã tồn tại`);
+          logs.push(`⚠️ Trùng lặp theo ID: ${name} (${code}) - Địa điểm đã tồn tại`);
+          continue;
+        }
+        
+        // Check for duplicate address
+        const importAddress = address || formattedAddress || '';
+        const normalizedImportAddress = normalizeAddress(importAddress);
+        if (normalizedImportAddress && existingAddresses.has(normalizedImportAddress)) {
+          duplicates++;
+          logs.push(`⚠️ Trùng lặp theo địa chỉ: ${name} (${code}) - Địa chỉ "${importAddress}" đã tồn tại`);
           continue;
         }
 
@@ -398,8 +421,9 @@ export default function Locations() {
           await createLocationHook(removeUndefinedDeep(payload), currentUser);
           success++; 
           logs.push(`✓ OK: ${name} (${code})`);
-          // Add to existing set to prevent duplicates within the same import batch
+          // Add to existing sets to prevent duplicates within the same import batch
           if (expectedId) existingLocationIds.add(expectedId);
+          if (normalizedImportAddress) existingAddresses.add(normalizedImportAddress);
         } catch (e) {
           failed++; 
           logs.push(`✗ Lỗi ${name}: ${e.message || e}`);
