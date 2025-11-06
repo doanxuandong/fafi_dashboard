@@ -106,7 +106,7 @@ export default function Locations() {
 
   const filtered = useMemo(() => {
     const s = (search || '').toLowerCase();
-    return (items || [])
+    const list = (items || [])
       .filter(i => {
         if (!s) return true;
         return (i.keywords || []).some(k => (k || '').toLowerCase().includes(s)) ||
@@ -123,6 +123,12 @@ export default function Locations() {
         const lvl = Number(filterLevel);
         return Number(i.level || 0) === lvl;
       });
+    // Stable sort to avoid jumping rows when updatedAt changes after actions
+    return [...list].sort((a, b) => {
+      const byName = (a.name || '').localeCompare(b.name || '');
+      if (byName !== 0) return byName;
+      return (a.code || '').localeCompare(b.code || '');
+    });
   }, [items, search, filterStatus, filterLevel]);
 
   // Stats overview
@@ -195,8 +201,7 @@ export default function Locations() {
       }
 
       toast.success('Phân công địa điểm thành công!');
-      setShowAssignModal(false);
-      setSelectedUser(null);
+      // Giữ nguyên modal để tiếp tục thao tác; chỉ reload memberships để cập nhật trạng thái
       await loadUserLocationMemberships();
     } catch (error) {
       console.error('Error assigning locations:', error);
@@ -289,6 +294,18 @@ export default function Locations() {
       // Create a set of existing location IDs for duplicate detection
       const existingLocationIds = new Set(items.map(loc => loc.id));
       
+      // Helper: remove undefined recursively (Firestore cấm undefined)
+      const removeUndefinedDeep = (obj) => {
+        if (obj == null || typeof obj !== 'object') return obj;
+        const out = Array.isArray(obj) ? [] : {};
+        Object.entries(obj).forEach(([k, v]) => {
+          if (v === undefined) return; // skip
+          const cleaned = typeof v === 'object' ? removeUndefinedDeep(v) : v;
+          if (cleaned !== undefined) out[k] = cleaned;
+        });
+        return out;
+      };
+
       for (const r of dataRows) {
         const obj = toObj(r);
         const name = find(obj, ['name','tên','ten']);
@@ -364,7 +381,7 @@ export default function Locations() {
           orgId: orgId || '',
           availableStock: availableStockText ? toBool(availableStockText) : defaultForm.availableStock,
           address: address || formattedAddress || '',
-          locationMark: {
+          locationMark: removeUndefinedDeep({
             ...defaultForm.locationMark,
             address: address || defaultForm.locationMark.address,
             formattedAddress: formattedAddress || undefined,
@@ -372,13 +389,13 @@ export default function Locations() {
             district: districtName ? { name: districtName, code: districtCode || 'N/A' } : undefined,
             province: provinceName ? { name: provinceName, code: provinceCode || 'N/A' } : undefined,
             region: regionName ? { name: regionName, code: regionCode || 'N/A' } : undefined,
-          },
+          }),
         };
         if (metaName) payload.meta = { ...(payload.meta||{}), name: metaName };
 
         try {
           // ✅ Clean Architecture: Sử dụng hook method
-          await createLocationHook(payload, currentUser);
+          await createLocationHook(removeUndefinedDeep(payload), currentUser);
           success++; 
           logs.push(`✓ OK: ${name} (${code})`);
           // Add to existing set to prevent duplicates within the same import batch
@@ -482,7 +499,8 @@ export default function Locations() {
       // ✅ Clean Architecture: Sử dụng hook method
       // Đổi từ 'confirm' thành 'accepted' (Cho phép)
       await updateLocationHook(item.id, { ...item, status: 'accepted' }, currentUser);
-      await load();
+      // Refresh nhẹ danh sách từ hook, tránh set loading cục bộ gây "trắng" bảng
+      await refreshLocations();
       // ✅ Toast message đã được handle trong hook
     } catch (error) {
       console.error('Error confirming location:', error);
@@ -1132,6 +1150,22 @@ function AssignLocationsModal({ user, locations, projects, userLocationMembershi
   const [filterProvince, setFilterProvince] = useState('');
   const [filterDistrict, setFilterDistrict] = useState('');
 
+  // Helpers: normalize province/district to names (string)
+  const getProvinceName = (loc) => {
+    const p = loc?.locationMark?.province;
+    if (!p) return '';
+    if (typeof p === 'string') return p;
+    if (typeof p === 'object') return p.name || p.code || '';
+    return '';
+  };
+  const getDistrictName = (loc) => {
+    const d = loc?.locationMark?.district;
+    if (!d) return '';
+    if (typeof d === 'string') return d;
+    if (typeof d === 'object') return d.name || d.code || '';
+    return '';
+  };
+
   const handleToggleLocation = (locationId) => {
     setSelectedLocationIds(prev => {
       if (prev.includes(locationId)) {
@@ -1150,29 +1184,21 @@ function AssignLocationsModal({ user, locations, projects, userLocationMembershi
   const { provinces, districts } = useMemo(() => {
     const provinceSet = new Set();
     const districtSet = new Set();
-    
-    locations.forEach(loc => {
-      const province = loc.locationMark?.province;
-      const district = loc.locationMark?.district;
-      
-      // Only add if it's a string
-      if (province && typeof province === 'string') {
-        provinceSet.add(province);
-      }
-      if (district && typeof district === 'string') {
-        districtSet.add(district);
-      }
+    (locations || []).forEach(loc => {
+      const pName = getProvinceName(loc);
+      const dName = getDistrictName(loc);
+      if (pName) provinceSet.add(pName);
+      if (dName) districtSet.add(dName);
     });
-    
     return {
-      provinces: Array.from(provinceSet).sort(),
-      districts: Array.from(districtSet).sort()
+      provinces: Array.from(provinceSet).sort((a,b)=>a.localeCompare(b)),
+      districts: Array.from(districtSet).sort((a,b)=>a.localeCompare(b))
     };
   }, [locations]);
 
   // Filter locations by search, province, and district
   const filteredLocations = useMemo(() => {
-    return locations.filter(loc => {
+    return (locations || []).filter(loc => {
       // Filter by search
       if (modalSearch) {
         const search = modalSearch.toLowerCase();
@@ -1185,12 +1211,12 @@ function AssignLocationsModal({ user, locations, projects, userLocationMembershi
       
       // Filter by province
       if (filterProvince) {
-        if (loc.locationMark?.province !== filterProvince) return false;
+        if (getProvinceName(loc) !== filterProvince) return false;
       }
       
       // Filter by district
       if (filterDistrict) {
-        if (loc.locationMark?.district !== filterDistrict) return false;
+        if (getDistrictName(loc) !== filterDistrict) return false;
       }
       
       return true;

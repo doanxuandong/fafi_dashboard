@@ -10,7 +10,7 @@ import { listLocations } from '../../infrastructure/repositories/locationsReposi
 import { useAuth } from '../contexts/AuthContext';
 import { toast } from '../components/common/Toaster';
 import { confirm } from '../components/common/ConfirmDialog';
-import { Plus, Pencil, Trash2, Search, Building, BarChart3, Package, Calendar, Users, UserPlus, Image as ImageIcon, Upload, MapPinned, MapPin, X } from 'lucide-react';
+import { Plus, Pencil, Trash2, Search, Building, BarChart3, Package, Calendar, Users, UserPlus, Image as ImageIcon, Upload, MapPinned, MapPin, X, CheckCircle } from 'lucide-react';
 import { Pagination } from 'antd';
 
 const defaultProjectForm = { name: '', description: '', orgId: '', tags: [] };
@@ -94,6 +94,9 @@ export default function Projects() {
   const [selectedOrgForUser, setSelectedOrgForUser] = useState(null);
   const [selectedProjectForUser, setSelectedProjectForUser] = useState(null);
   const [userMemberships, setUserMemberships] = useState({}); // {userId: {orgs: [], projects: []}}
+  const [modalUsers, setModalUsers] = useState([]); // Users rendered in the Add User modal (allUsers + current members)
+  const [modalMemberIds, setModalMemberIds] = useState(new Set()); // Current members' userIds for selected org/project
+  const [addUserSearch, setAddUserSearch] = useState('');
   
   // Members modal states
   const [showMembersModal, setShowMembersModal] = useState(false);
@@ -357,9 +360,10 @@ export default function Projects() {
   };
 
   // Load user memberships from orgs_members and projects_members
-  const loadUserMemberships = async () => {
+  const loadUserMemberships = async (usersArray) => {
+    const source = usersArray && usersArray.length ? usersArray : allUsers;
     const memberships = {};
-    for (const user of allUsers) {
+    for (const user of source) {
       const userOrgsData = await getUserOrgs(user.id);
       const userProjectsData = await getUserProjects(user.id);
       memberships[user.id] = {
@@ -373,9 +377,51 @@ export default function Projects() {
   // Load memberships when opening add user modal
   useEffect(() => {
     if (showAddUserModal) {
-      loadUserMemberships();
+      loadUserMemberships(modalUsers.length ? modalUsers : allUsers);
     }
-  }, [showAddUserModal]);
+  }, [showAddUserModal, modalUsers, allUsers]);
+
+  // Ensure modal shows all current members even if they are outside allUsers
+  useEffect(() => {
+    let cancelled = false;
+    async function buildModalUsers() {
+      if (!showAddUserModal) { setModalUsers([]); return; }
+      try {
+        // For ORG/PROJECT modal: load full users list (unscoped) so admin can add bất kỳ nhân sự nào
+        let merged = (selectedOrgForUser || selectedProjectForUser) ? await listUsers({}) : [...allUsers];
+        const memberIdSet = new Set();
+        const ensureMergedByIds = async (ids) => {
+          const missingIds = ids.filter(id => !merged.some(u => u.id === id));
+          if (missingIds.length > 0) {
+            const extra = await getUsersByIds(missingIds);
+            merged = [...merged, ...extra.filter(Boolean)];
+          }
+          ids.forEach(id => memberIdSet.add(id));
+        };
+        if (selectedOrgForUser) {
+          const members = await getOrgMembers(selectedOrgForUser.id);
+          await ensureMergedByIds(members.map(m => m.userId));
+        }
+        if (selectedProjectForUser) {
+          const members = await getProjectMembers(selectedProjectForUser.id);
+          await ensureMergedByIds(members.map(m => m.userId));
+        }
+        if (!cancelled) {
+          setModalUsers(merged);
+          setModalMemberIds(memberIdSet);
+          // Load memberships for the exact set shown in the modal so Org/Project columns are filled
+          await loadUserMemberships(merged);
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setModalUsers(allUsers);
+          setModalMemberIds(new Set());
+        }
+      }
+    }
+    buildModalUsers();
+    return () => { cancelled = true; };
+  }, [showAddUserModal, selectedOrgForUser, selectedProjectForUser, allUsers, getOrgMembers, getProjectMembers, getUsersByIds]);
 
   return (
     <div className="space-y-6 p-4">
@@ -491,7 +537,7 @@ export default function Projects() {
                         <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Tên tổ chức</th>
                         <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Mô tả</th>
                         <th className="text-center px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Thành viên</th>
-                        <th className="w-24 px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Thao tác</th>
+                        <th className="w-28 px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">Thao tác</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -595,7 +641,7 @@ export default function Projects() {
                     <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Mô tả</th>
                     <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Công ty</th>
                     <th className="text-center px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Thành viên</th>
-                    <th className="w-24 px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Thao tác</th>
+                    <th className="w-28 px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">Thao tác</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -669,7 +715,7 @@ export default function Projects() {
                         <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Tên dự án</th>
                         <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Công ty</th>
                         <th className="text-center px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Địa điểm</th>
-                        <th className="w-24 px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider text-right">Thao tác</th>
+                        <th className="w-32 px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider text-right whitespace-nowrap">Thao tác</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -907,6 +953,7 @@ export default function Projects() {
               setShowAddUserModal(false);
               setSelectedOrgForUser(null);
               setSelectedProjectForUser(null);
+              setAddUserSearch('');
             }
           }}
         >
@@ -914,6 +961,18 @@ export default function Projects() {
             <h3 className="text-lg font-semibold mb-4">
               {selectedOrgForUser ? `Chọn nhân sự thêm vào tổ chức: ${selectedOrgForUser.name}` : `Chọn nhân sự thêm vào dự án: ${selectedProjectForUser.name}`}
             </h3>
+            {/* Search box for users */}
+            <div className="mb-3">
+              <div className="relative max-w-md">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+                <input
+                  value={addUserSearch}
+                  onChange={(e)=>setAddUserSearch(e.target.value)}
+                  placeholder="Tìm theo tên, email, tổ chức, dự án..."
+                  className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                />
+              </div>
+            </div>
             
             <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-gray-200">
@@ -924,25 +983,48 @@ export default function Projects() {
                     <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Role</th>
                     <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Tổ chức</th>
                     <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Dự án</th>
-                    <th className="w-24 px-4 py-3 text-xs font-medium text-gray-500 uppercase">Thao tác</th>
+                    <th className="w-24 px-4 py-3 text-xs font-medium text-gray-500 uppercase whitespace-nowrap">Thao tác</th>
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
                   {(() => {
                     const isAll = accessibleProjects === '*';
                     const apSet = new Set(isAll ? [] : (accessibleProjects || []));
-                    const visible = (allUsers || []).filter(u => {
+                    // Base visible set
+                    let visible = (modalUsers || allUsers || []).filter(u => {
                       const uOrgs = userMemberships[u.id]?.orgs || [];
                       const uProjects = userMemberships[u.id]?.projects || [];
-                      if (selectedOrgForUser) {
-                        return uOrgs.includes(selectedOrgForUser.id) || uProjects.some(pid => (items.find(p => p.id === pid)?.orgId) === selectedOrgForUser.id);
-                      }
+                      const isMemberOfSelectedOrg = !!selectedOrgForUser && (uOrgs.includes(selectedOrgForUser.id) || modalMemberIds.has(u.id));
+                      const isMemberOfSelectedProject = !!selectedProjectForUser && (uProjects.includes(selectedProjectForUser.id) || modalMemberIds.has(u.id));
+                      // Always include current members so the count matches the list
+                      if (isMemberOfSelectedOrg || isMemberOfSelectedProject) return true;
+                      // For adding to ORG: show full user list (no scope filter)
+                      if (selectedOrgForUser) return true;
+                      // For adding to PROJECT: show users in the same org as project (plus scope fallback)
                       if (selectedProjectForUser) {
-                        return uProjects.includes(selectedProjectForUser.id);
+                        const projectOrgId = items.find(p => p.id === selectedProjectForUser.id)?.orgId;
+                        if (!projectOrgId || uOrgs.includes(projectOrgId)) return true;
                       }
+                      // Otherwise, include by scope
                       if (isAll) return true;
                       return uProjects.some(pid => apSet.has(pid));
                     });
+                    // Search filter
+                    if (addUserSearch) {
+                      const s = addUserSearch.toLowerCase();
+                      visible = visible.filter(u => {
+                        const uOrgs = userMemberships[u.id]?.orgs || [];
+                        const uProjects = userMemberships[u.id]?.projects || [];
+                        const orgNames = uOrgs.map(oid => orgs.find(o=>o.id===oid)?.name || '').join(' ').toLowerCase();
+                        const projectNames = uProjects.map(pid => items.find(p=>p.id===pid)?.name || '').join(' ').toLowerCase();
+                        return (
+                          (u.displayName || '').toLowerCase().includes(s) ||
+                          (u.email || '').toLowerCase().includes(s) ||
+                          orgNames.includes(s) ||
+                          projectNames.includes(s)
+                        );
+                      });
+                    }
                     return visible.map((user) => {
                     // Get user's orgs and projects from memberships (real-time from orgs_members and projects_members)
                     const userOrgs = userMemberships[user.id]?.orgs || [];
@@ -957,29 +1039,46 @@ export default function Projects() {
                         <td className="px-4 py-3 text-sm text-gray-600">{user.role}</td>
                         <td className="px-4 py-3 text-sm text-gray-600">{orgNames}</td>
                         <td className="px-4 py-3 text-sm text-gray-600">{projectNames}</td>
-                        <td className="px-4 py-3">
-                          <button
-                            onClick={async () => {
-                              try {
-                                if (selectedOrgForUser) {
-                                  await addUserToOrg(user.id, selectedOrgForUser.id, user.role, [], currentUser.uid);
-                                } else if (selectedProjectForUser) {
-                                  const project = items.find(p => p.id === selectedProjectForUser.id);
-                                  await addUserToProject(user.id, selectedProjectForUser.id, project.orgId, user.role, [], currentUser.uid);
-                                }
-                                // Reload memberships to show updated data
-                                await loadUserMemberships();
-                                await load();
-                                // ✅ Toast message đã được handle trong hook
-                              } catch (error) {
-                                // Error đã được handle trong hook
-                                console.error('Error adding user:', error);
-                              }
-                            }}
-                            className="px-3 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700"
-                          >
-                            Thêm
-                          </button>
+                        <td className="px-4 py-3 text-center">
+                          <div className="flex items-center justify-center">
+                          {(() => {
+                            const alreadyInOrg = !!selectedOrgForUser && (userOrgs.includes(selectedOrgForUser.id) || modalMemberIds.has(user.id));
+                            const alreadyInProject = !!selectedProjectForUser && (userProjects.includes(selectedProjectForUser.id) || modalMemberIds.has(user.id));
+                            const already = alreadyInOrg || alreadyInProject;
+                            if (already) {
+                              return (
+                                <button
+                                  disabled
+                                  className="p-2 rounded bg-gray-200 text-gray-500 cursor-not-allowed"
+                                  title="Đã thêm"
+                                >
+                                  <CheckCircle className="w-4 h-4" />
+                                </button>
+                              );
+                            }
+                            return (
+                              <button
+                                onClick={async () => {
+                                  try {
+                                    if (selectedOrgForUser) {
+                                      await addUserToOrg(user.id, selectedOrgForUser.id, user.role, [], currentUser.uid);
+                                    } else if (selectedProjectForUser) {
+                                      const project = items.find(p => p.id === selectedProjectForUser.id);
+                                      await addUserToProject(user.id, selectedProjectForUser.id, project.orgId, user.role, [], currentUser.uid);
+                                    }
+                                    await loadUserMemberships();
+                                    await load();
+                                  } catch (error) {
+                                    console.error('Error adding user:', error);
+                                  }
+                                }}
+                                className="px-3 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700"
+                              >
+                                Thêm
+                              </button>
+                            );
+                          })()}
+                          </div>
                         </td>
                       </tr>
                     );

@@ -55,6 +55,11 @@ export default function Schedules() {
   const [itemsPerPage] = useState(8);
   const [showMembersModal, setShowMembersModal] = useState(false);
   const [selectedMembers, setSelectedMembers] = useState([]);
+  const [selectedLocationIds, setSelectedLocationIds] = useState([]);
+  const [showImport, setShowImport] = useState(false);
+  const [importUrl, setImportUrl] = useState('');
+  const [importing, setImporting] = useState(false);
+  const [importLog, setImportLog] = useState([]);
 
   const filtered = useMemo(() => {
     if (!search) return items;
@@ -110,18 +115,28 @@ export default function Schedules() {
   // ✅ Clean Architecture: Sử dụng hook methods
   const submit = async (e) => {
     e.preventDefault();
-    if (!form.locationId || !form.projectId || !form.startAt || !form.endAt) return;
+    if ((!form.locationId && selectedLocationIds.length === 0) || !form.projectId || !form.startAt || !form.endAt) return;
     
     try {
       const isUpdating = !!editing;
       if (isUpdating) {
         await updateScheduleHook(editing.id, form, currentUser);
       } else {
-        await createScheduleHook(form, currentUser);
+        // If multiple locations selected, create one schedule per location
+        const ids = selectedLocationIds.length > 0 ? selectedLocationIds : [form.locationId];
+        for (const locId of ids) {
+          const location = locations.find(l => l.id === locId);
+          await createScheduleHook({
+            ...form,
+            locationId: locId,
+            locationName: location ? (location.name || location.locationName || '') : ''
+          }, currentUser);
+        }
       }
       setShowForm(false);
       setEditing(null);
       setForm(defaultForm);
+      setSelectedLocationIds([]);
       await load(); // Reload users
       // ✅ Toast message đã được handle trong hook
     } catch (error) {
@@ -235,6 +250,210 @@ export default function Schedules() {
     return active ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800';
   };
 
+  // Import from Google Sheets (CSV) for schedules
+  const handleImportFromSheet = async () => {
+    if (!importUrl?.trim()) return;
+    setImporting(true);
+    setImportLog([]);
+    try {
+      const buildCsvUrl = (url) => {
+        try {
+          const u = new URL(url);
+          if (u.pathname.includes('/export') && u.searchParams.get('format') === 'csv') return u.toString();
+          const match = u.pathname.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+          if (match) {
+            const sheetId = match[1];
+            const gid = u.searchParams.get('gid');
+            const base = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv`;
+            return gid ? `${base}&gid=${gid}` : base;
+          }
+          return url;
+        } catch {
+          return url;
+        }
+      };
+
+      const csvUrl = buildCsvUrl(importUrl.trim());
+      const res = await fetch(csvUrl);
+      if (!res.ok) throw new Error(`Không tải được CSV (${res.status})`);
+      const csvText = await res.text();
+
+      // Simple CSV parser with quoted values support
+      const parseCsv = (text) => {
+        const rows = [];
+        let cur = '', row = [], inQuotes = false;
+        for (let i = 0; i < text.length; i++) {
+          const ch = text[i];
+          if (ch === '"') {
+            if (inQuotes && text[i + 1] === '"') { cur += '"'; i++; }
+            else inQuotes = !inQuotes;
+          } else if (ch === ',' && !inQuotes) {
+            row.push(cur); cur = '';
+          } else if ((ch === '\n' || ch === '\r') && !inQuotes) {
+            if (cur.length || row.length) { row.push(cur); rows.push(row); row = []; cur = ''; }
+          } else {
+            cur += ch;
+          }
+        }
+        if (cur.length || row.length) { row.push(cur); rows.push(row); }
+        return rows.filter(r => r.some(c => (c || '').trim() !== ''));
+      };
+
+      const rows = parseCsv(csvText);
+      if (!rows.length) throw new Error('CSV rỗng');
+      const headers = rows[0].map(h => (h || '').trim().toLowerCase());
+      const dataRows = rows.slice(1);
+
+      const find = (obj, keys) => {
+        for (const k of keys) { if (obj[k] != null && String(obj[k]).trim() !== '') return obj[k]; }
+        return '';
+      };
+
+      const toObj = (row) => headers.reduce((acc, h, idx) => { acc[h] = row[idx] ?? ''; return acc; }, {});
+
+      const logs = [];
+      let success = 0, failed = 0, duplicates = 0;
+
+      // Cache maps
+      const projectByName = new Map(projects.map(p => [String((p.name||'').trim().toLowerCase()), p]));
+      const locationById = new Map(locations.map(l => [l.id, l]));
+      const userByEmail = new Map(users.map(u => [String((u.email||'').trim().toLowerCase()), u]));
+
+      // Build existing IDs (preferred) and keys (fallback) to detect duplicates
+      const existingIds = new Set((items || []).map(s => s.id).filter(Boolean));
+      // Fallback key: projectId + locationId + startAt + endAt (minute precision)
+      const fmt2 = (d) => {
+        const y=d.getFullYear();
+        const mo=String(d.getMonth()+1).padStart(2,'0');
+        const da=String(d.getDate()).padStart(2,'0');
+        const hh=String(d.getHours()).padStart(2,'0');
+        const mm=String(d.getMinutes()).padStart(2,'0');
+        return `${y}-${mo}-${da}T${hh}:${mm}`;
+      };
+      const normalizeTs = (ts) => {
+        if (!ts) return '';
+        if (ts.seconds) return fmt2(new Date(ts.seconds*1000));
+        if (ts.toDate) return fmt2(ts.toDate());
+        if (typeof ts === 'string') {
+          const d=new Date(ts); if (!isNaN(d)) return fmt2(d); return '';
+        }
+        if (typeof ts === 'number') { const d=new Date(ts); if (!isNaN(d)) return fmt2(d); return ''; }
+        return '';
+      };
+      const toKey = (p,l,s,e) => `${p}__${l}__${s}__${e}`;
+      const existingKeys = new Set((items||[]).map(s=> toKey(s.projectId||'', s.locationId||'', normalizeTs(s.startAt), normalizeTs(s.endAt))));
+
+      for (const r of dataRows) {
+        const obj = toObj(r);
+        const idRaw = find(obj, ['id']);
+        const projectIdRaw = find(obj, ['projectid','project_id','dự án id','du an id']);
+        const projectNameRaw = find(obj, ['project','dự án','du an']);
+        const locationId = String(find(obj, ['locationid','location_id','địa điểm id','dia diem id'])).trim();
+        const locationNameRaw = find(obj, ['location','địa điểm','dia diem']);
+        const startAtRaw = find(obj, ['startat','start','bắt đầu','bat dau']);
+        const endAtRaw = find(obj, ['endat','end','kết thúc','ket thuc']);
+        const notes = find(obj, ['notes','ghi chú','ghi chu']);
+        const activeRaw = find(obj, ['active','hoạt động','hoat dong']);
+        const membersRaw = find(obj, ['members','thành viên','thanh vien']);
+
+        // Resolve projectId
+        let projectId = (projectIdRaw || '').trim();
+        if (!projectId && projectNameRaw) {
+          const p = projectByName.get(String(projectNameRaw).trim().toLowerCase());
+          if (p) projectId = p.id;
+        }
+
+        // Enforce access
+        if (accessibleProjects !== '*') {
+          const allowed = new Set(accessibleProjects || []);
+          if (!projectId || !allowed.has(projectId)) { failed++; logs.push(`Bỏ qua dòng vì dự án không hợp lệ/không trong phạm vi: ${projectNameRaw||projectId}`); continue; }
+        }
+
+        // Resolve location
+        let location = null;
+        if (locationId) location = locationById.get(locationId) || null;
+        if (!location && locationNameRaw) {
+          location = locations.find(l => (l.name||'').trim().toLowerCase() === String(locationNameRaw).trim().toLowerCase() && l.projectId === projectId) || null;
+        }
+        if (!location) { failed++; logs.push(`Bỏ qua: không tìm thấy địa điểm (${locationId||locationNameRaw||'N/A'})`); continue; }
+
+        const parseDate = (val) => {
+          if (!val) return '';
+          const s = String(val).trim();
+          let d = new Date(s);
+          if (isNaN(d.getTime())) {
+            // try dd/mm/yyyy hh:mm or yyyy-mm-dd
+            const m = s.match(/(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2})/);
+            if (m) d = new Date(`${m[1]}T${m[2]}`);
+          }
+          if (isNaN(d.getTime())) return '';
+          const y = d.getFullYear();
+          const mo = String(d.getMonth()+1).padStart(2,'0');
+          const da = String(d.getDate()).padStart(2,'0');
+          const hh = String(d.getHours()).padStart(2,'0');
+          const mm = String(d.getMinutes()).padStart(2,'0');
+          return `${y}-${mo}-${da}T${hh}:${mm}`; // datetime-local format
+        };
+
+        const startAt = parseDate(startAtRaw);
+        const endAt = parseDate(endAtRaw);
+        if (!startAt || !endAt) { failed++; logs.push(`Bỏ qua: thời gian không hợp lệ (${startAtRaw} - ${endAtRaw})`); continue; }
+
+        const active = /^true|1|yes|y$/i.test(String(activeRaw).trim());
+
+        // Parse members as comma-separated emails
+        let members = [];
+        if (membersRaw) {
+          const emails = String(membersRaw).split(/[,;\s]+/).map(s=>s.trim().toLowerCase()).filter(Boolean);
+          members = emails.map(e => userByEmail.get(e)?.id).filter(Boolean);
+        }
+
+        // Duplicate check: prefer ID if provided; otherwise use fallback key
+        const scheduleId = String(idRaw || '').trim();
+        if (scheduleId && existingIds.has(scheduleId)) {
+          duplicates++; logs.push(`⚠️ Trùng lặp theo ID: ${scheduleId}`);
+          continue;
+        }
+        const dupKey = toKey(projectId, location.id, startAt, endAt);
+        if (!scheduleId && existingKeys.has(dupKey)) {
+          duplicates++; logs.push(`⚠️ Trùng lặp: ${location.name} (${startAt} → ${endAt})`);
+          continue;
+        }
+
+        try {
+          await createScheduleHook({
+            projectId,
+            locationId: location.id,
+            locationName: location.name || location.locationName || '',
+            startAt,
+            endAt,
+            members,
+            notes,
+            active
+          }, currentUser);
+          success++; logs.push(`✓ OK: ${location.name} (${startAt} → ${endAt})`);
+          if (scheduleId) existingIds.add(scheduleId); else existingKeys.add(dupKey);
+        } catch (e) {
+          failed++; logs.push(`✗ Lỗi tạo lịch: ${location.name || location.id}: ${e.message || e}`);
+        }
+      }
+
+      setImportLog([
+        `📊 Kết quả import:`,
+        `✓ Thành công: ${success} lịch`,
+        `✗ Thất bại: ${failed} lịch`,
+        `⚠️ Trùng lặp: ${duplicates} lịch`,
+        `━━━━━━━━━━━━━━━━━━━━`,
+        ...logs
+      ]);
+      await load();
+    } catch (err) {
+      setImportLog([`Lỗi import: ${err.message || err}`]);
+    } finally {
+      setImporting(false);
+    }
+  };
+
   return (
     <div className="space-y-6 p-4">
       {/* Page header */}
@@ -306,8 +525,48 @@ export default function Schedules() {
                 <Plus className="w-4 h-4" />
                 <span>Thêm lịch làm việc</span>
               </button>
+              <button 
+                onClick={() => setShowImport(!showImport)} 
+                className="bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700 transition-colors flex items-center space-x-2"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Import</span>
+              </button>
             </div>
           </div>
+
+          {showImport && (
+            <div className="mb-4 border rounded-lg p-4 bg-gray-50">
+              <div className="flex items-center gap-2">
+                <input
+                  value={importUrl}
+                  onChange={(e) => setImportUrl(e.target.value)}
+                  placeholder="Dán link Google Sheets (Publish/Share)"
+                  className="flex-1 border border-gray-300 rounded-md px-3 py-2"
+                />
+                <button
+                  disabled={importing || !importUrl.trim()}
+                  onClick={async () => { await handleImportFromSheet(); }}
+                  className={`px-3 py-2 rounded-md ${importing ? 'bg-gray-300 text-gray-600' : 'bg-green-600 text-white hover:bg-green-700'}`}
+                >
+                  {importing ? 'Đang import...' : 'Import'}
+                </button>
+                <button
+                  onClick={() => { setShowImport(false); setImportUrl(''); setImportLog([]); }}
+                  className="px-3 py-2 rounded-md border border-gray-300 hover:bg-gray-100"
+                >
+                  Đóng
+                </button>
+              </div>
+              {importLog.length > 0 && (
+                <div className="text-sm text-gray-600 max-h-40 overflow-y-auto mt-2 p-2 bg-white rounded border">
+                  {importLog.map((l, idx) => (
+                    <div key={idx}>{l}</div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
 
           {(loading || schedulesLoading || projectsLoading || locationsLoading) ? (
             <div className="text-center py-8 text-gray-500">Đang tải...</div>
@@ -451,17 +710,43 @@ export default function Schedules() {
                 </div>
                 <div>
                   <label className="block text-sm font-medium mb-1">Địa điểm *</label>
-                  <select 
-                    value={form.locationId} 
-                    onChange={(e) => handleLocationChange(e.target.value)} 
-                    className="w-full border rounded-lg px-3 py-2"
-                    required
-                  >
-                    <option value="">-- Chọn địa điểm --</option>
-                    {locations.filter(l => l.status === 'accepted').map(l => (
-                      <option key={l.id} value={l.id}>{l.name}</option>
-                    ))}
-                  </select>
+                  <div className="border rounded-lg p-3 bg-gray-50">
+                    <div className="flex flex-wrap gap-2 mb-2">
+                      {selectedLocationIds.map(id => {
+                        const loc = locations.find(l => l.id === id);
+                        return (
+                          <div key={id} className="inline-flex items-center gap-1 bg-green-100 text-green-800 px-2 py-1 rounded text-sm">
+                            <span>{loc?.name || id}</span>
+                            <button
+                              type="button"
+                              onClick={() => setSelectedLocationIds(selectedLocationIds.filter(x => x !== id))}
+                              className="hover:bg-green-200 rounded"
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          </div>
+                        );
+                      })}
+                      {selectedLocationIds.length === 0 && (
+                        <span className="text-sm text-gray-500">Chưa chọn địa điểm nào</span>
+                      )}
+                    </div>
+                    <select
+                      value=""
+                      onChange={(e) => {
+                        const id = e.target.value;
+                        if (id && !selectedLocationIds.includes(id)) {
+                          setSelectedLocationIds([...selectedLocationIds, id]);
+                        }
+                      }}
+                      className="w-full border rounded-lg px-3 py-2 bg-white"
+                    >
+                      <option value="">-- Thêm địa điểm --</option>
+                      {locations.filter(l => l.status === 'accepted' && !selectedLocationIds.includes(l.id)).map(l => (
+                        <option key={l.id} value={l.id}>{l.name}</option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
               </div>
 
